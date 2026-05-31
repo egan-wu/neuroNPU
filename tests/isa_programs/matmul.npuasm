@@ -1,0 +1,29 @@
+# matmul.npuasm — hand-written validation slice for the NeuroNPU simulator.
+#
+# Computes Y = A @ B with A,B,Y all 64x64 fp32, exercising:
+#   DMA load (DDR->SRAM) -> MATMUL (TENSOR) -> DMA store (SRAM->DDR)
+# with cross-engine synchronisation via events.
+#
+# A = iota (A[m,k] = m*64 + k), B = all ones  =>  Y[m,n] = sum_k A[m,k]
+#   = 4096*m + 2016 for every n.  Check: Y[0,0]=2016, Y[1,0]=6112.
+
+# ---- DDR tensors ----
+.desc A  ddr  f32 0x00000 64x64
+.desc B  ddr  f32 0x10000 64x64
+.desc Y  ddr  f32 0x20000 64x64
+
+# ---- SRAM scratchpad tiles ----
+.desc sA sram f32 0x0000  64x64
+.desc sB sram f32 0x4000  64x64
+.desc sY sram f32 0x8000  64x64
+
+# ---- initial data in DDR ----
+.data A iota
+.data B const 1
+
+# ---- program ----
+DMA.LOAD  sA A            @sig 0       # stage A into SRAM
+DMA.LOAD  sB B            @sig 1       # stage B (serialised after sA on DMA engine)
+MATMUL    sY sA sB        @wait 1 @sig 2
+DMA.STORE Y  sY           @wait 2      # write result back to DDR
+HALT

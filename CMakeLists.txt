@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.16)
+project(neuronpu CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+add_compile_options(-Wall -Wextra)
+
+add_library(neuronpu_core
+  src/types.cpp
+  src/config.cpp
+  src/isa.cpp
+  src/memory.cpp
+  src/logger.cpp
+  src/perf.cpp
+  src/core.cpp)
+target_include_directories(neuronpu_core PUBLIC include)
+
+add_executable(neuronpu src/main.cpp)
+target_link_libraries(neuronpu PRIVATE neuronpu_core)
+
+enable_testing()
+add_test(NAME matmul_slice
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/matmul.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)

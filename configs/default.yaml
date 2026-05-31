@@ -1,0 +1,26 @@
+# NeuroNPU hardware configuration (flat key: value; '#' starts a comment).
+# This file is the tunable side of the simulator — adjust freely.
+
+# --- Core ---
+core_clock_ghz: 1.0      # global sim time unit is core-clock cycles
+
+# --- Tensor Engine (systolic MAC array) ---
+mac_rows: 32
+mac_cols: 32
+
+# --- Vector Engine ---
+vector_lanes: 256        # fp32-equivalent lanes per cycle
+
+# --- DDR (external memory) ---
+ddr_freq_mhz: 3200       # data-rate base clock; DDR moves 2 words/clock
+ddr_width_bits: 64       # bus width per channel
+ddr_channels: 2
+ddr_latency_ns: 100      # fixed latency added per DMA burst
+ddr_size_mb: 4096
+
+# --- SRAM scratchpad (on-chip, software-managed) ---
+sram_size_kb: 4096
+sram_banks: 16
+
+# --- Features ---
+double_buffer: true      # overlap is expressed by the compiler via sync events
