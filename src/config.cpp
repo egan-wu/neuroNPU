@@ -69,6 +69,10 @@ Config Config::load(const std::string& path) {
   geti("sram_banks", c.sram_banks);
   geti("sram_bank_width_bytes", c.sram_bank_width_bytes);
   getb("double_buffer", c.double_buffer);
+  getd("energy_per_mac_pj", c.energy_per_mac_pj);
+  getd("energy_per_ddr_byte_pj", c.energy_per_ddr_byte_pj);
+  getd("energy_per_sram_byte_pj", c.energy_per_sram_byte_pj);
+  getd("static_power_mw", c.static_power_mw);
   return c;
 }
 

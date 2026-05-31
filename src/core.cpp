@@ -365,6 +365,7 @@ RunResult Core::run() {
       r.is_dma = true;
       r.bytes_remaining = double(r.rec.bytes);
       r.data_start = now + latency_cycles;
+      out.sram_bytes += r.rec.bytes;  // the SRAM side of the transfer
     } else {
       r.cycles_remaining = r.rec.cycles;  // NOP/HALT have 0 cycles -> retire at once
       // SRAM bandwidth this op wants at full rate: operand bytes touched / cycles.
@@ -372,6 +373,7 @@ RunResult Core::run() {
         double touched = 0;
         for (int a : in.args) touched += double(prog_.descriptors[a].bytes());
         r.sram_demand = touched / r.rec.cycles;
+        out.sram_bytes += uint64_t(touched);
       }
     }
     running.push_back(std::move(r));

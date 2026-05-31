@@ -19,6 +19,13 @@ struct PerfReport {
   double   total_gmacs = 0;
   double   arithmetic_intensity = 0;  // MACs per DDR byte
   bool     memory_bound = false;
+  // Energy model (nJ) and average power (mW).
+  double   energy_total_nj = 0;
+  double   energy_mac_nj = 0;
+  double   energy_ddr_nj = 0;
+  double   energy_sram_nj = 0;
+  double   energy_static_nj = 0;
+  double   avg_power_mw = 0;
 };
 
 PerfReport analyze(const RunResult& r, const Config& cfg);

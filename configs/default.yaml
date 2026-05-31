@@ -27,3 +27,9 @@ sram_bank_width_bytes: 16   # bytes/cycle per bank; aggregate SRAM BW = banks x 
 
 # --- Features ---
 double_buffer: true      # overlap is expressed by the compiler via sync events
+
+# --- Energy model (illustrative; tune to your silicon) ---
+energy_per_mac_pj: 0.04        # pJ per MAC
+energy_per_ddr_byte_pj: 20.0   # pJ per DDR byte moved
+energy_per_sram_byte_pj: 1.0   # pJ per SRAM byte touched
+static_power_mw: 50.0          # leakage / always-on power

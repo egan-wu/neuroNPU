@@ -42,6 +42,7 @@ struct RunResult {
   std::array<double, 3>    engine_busy{0, 0, 0};  // indexed by Engine
   double                   total_macs = 0;
   uint64_t                 ddr_bytes = 0;
+  uint64_t                 sram_bytes = 0;  // SRAM bytes touched (energy model)
 };
 
 // Writes the traces to `out_dir` (isa_trace.jsonl, ddr_trace.csv).

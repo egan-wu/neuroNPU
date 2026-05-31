@@ -34,6 +34,12 @@ struct Config {
   // Features
   bool     double_buffer  = true;  // documentation flag; overlap is compiler-driven
 
+  // Energy model (illustrative coefficients; tune to your silicon).
+  double   energy_per_mac_pj      = 0.04;  // pJ per MAC
+  double   energy_per_ddr_byte_pj = 20.0;  // pJ per DDR byte moved
+  double   energy_per_sram_byte_pj = 1.0;  // pJ per SRAM byte touched
+  double   static_power_mw        = 50.0;  // leakage / always-on power
+
   // Peak DDR bandwidth in bytes/ns (= GB/s). DDR transfers 2 words/clock.
   double ddr_peak_bytes_per_ns() const;
   // Peak MACs/cycle of the tensor engine.

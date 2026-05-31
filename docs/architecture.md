@@ -83,7 +83,9 @@ A run produces (see [`../src/logger.cpp`](../src/logger.cpp)):
 
 The analyzer ([`../src/perf.cpp`](../src/perf.cpp)) derives: total cycles/time, **MAC-array
 utilization**, DMA/VE utilization, **DDR achieved vs peak bandwidth**, **arithmetic
-intensity**, and a roofline **compute- vs memory-bound** verdict.
+intensity**, a roofline **compute- vs memory-bound** verdict, and an **energy/power
+estimate** (per-MAC, per-DDR-byte, per-SRAM-byte coefficients + static power; broken down
+by source, with average power = energy / time).
 
 ## Configuration
 
@@ -98,5 +100,5 @@ SRAM (size/banks), feature flags. Loaded at startup.
 3. ~~Multi-DMA-channel + DDR contention · SRAM port contention~~ ✅
 4. ~~`LOOP`/control flow (nested) to keep multi-layer LLM binaries compact~~ ✅
 5. ~~Multi-core / multi-tile scaling · per-core private SRAM~~ ✅
-6. Optional energy/power estimation.
+6. ~~Energy/power estimation~~ ✅
 7. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end.
