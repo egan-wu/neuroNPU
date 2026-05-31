@@ -95,6 +95,6 @@ SRAM (size/banks), feature flags. Loaded at startup.
 2. ~~`CONV`~~ ✅
 3. ~~Multi-DMA-channel + DDR contention · SRAM port contention~~ ✅
 4. ~~`LOOP`/control flow to keep multi-layer LLM binaries compact~~ ✅ (one level; nesting TODO)
-5. Multi-core / multi-tile scaling.
+5. ~~Multi-core / multi-tile scaling~~ ✅ (shared SRAM for now; per-core SRAM TODO)
 6. Optional energy/power estimation.
 7. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end.

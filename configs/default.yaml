@@ -3,6 +3,7 @@
 
 # --- Core ---
 core_clock_ghz: 1.0      # global sim time unit is core-clock cycles
+num_cores: 1             # independent cores/tiles; >1 share DDR + SRAM bandwidth
 
 # --- Tensor Engine (systolic MAC array) ---
 mac_rows: 32

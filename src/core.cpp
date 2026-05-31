@@ -287,6 +287,7 @@ namespace {
 struct Running {
   int         instr_idx;
   Engine      engine;
+  int         core = 0;
   double      start;
   // compute ops: remaining cycles, rate 1. DMA ops: remaining bytes at a
   // bandwidth-share rate, after an initial latency phase ending at data_start.
@@ -304,11 +305,18 @@ RunResult Core::run() {
   out.instrs.reserve(prog_.instrs.size());
   out.clock_ghz = cfg_.core_clock_ghz;
 
-  // Per-engine in-order queues.
-  std::vector<int> q[3];
-  for (int i = 0; i < int(prog_.instrs.size()); ++i)
-    q[int(prog_.instrs[i].engine())].push_back(i);
-  size_t head[3] = {0, 0, 0};
+  // Per-(core, engine) in-order queues.
+  const int ncores = std::max(1, cfg_.num_cores);
+  std::vector<std::array<std::vector<int>, 3>> q(ncores);
+  std::vector<std::array<size_t, 3>> head(ncores);
+  for (auto& h : head) h = {0, 0, 0};
+  for (int i = 0; i < int(prog_.instrs.size()); ++i) {
+    const Instr& in = prog_.instrs[i];
+    if (in.core < 0 || in.core >= ncores)
+      throw std::runtime_error("instruction core id " + std::to_string(in.core) +
+                               " out of range (num_cores=" + std::to_string(ncores) + ")");
+    q[in.core][int(in.engine())].push_back(i);
+  }
 
   std::unordered_map<int, double> ev;     // event id -> signaled time
   std::vector<Running> running;
@@ -324,17 +332,18 @@ RunResult Core::run() {
   auto ready = [&](const Instr& in) {
     return in.wait_event < 0 || ev.find(in.wait_event) != ev.end();
   };
-  auto dma_in_flight = [&] {
-    int n = 0; for (auto& r : running) if (r.is_dma) ++n; return n;
+  auto dma_in_flight = [&](int c) {
+    int n = 0; for (auto& r : running) if (r.is_dma && r.core == c) ++n; return n;
   };
 
-  // Start an instruction on its engine at time `now`.
-  auto start_instr = [&](int e) {
-    int ii = q[e][head[e]++];
+  // Start an instruction on (core c, engine e) at time `now`.
+  auto start_instr = [&](int c, int e) {
+    int ii = q[c][e][head[c][e]++];
     const Instr& in = prog_.instrs[ii];
     Running r;
     r.instr_idx = ii;
     r.engine = Engine(e);
+    r.core = c;
     r.start = now;
     r.rec.idx = ii;
     r.rec.op = in.op;
@@ -360,21 +369,23 @@ RunResult Core::run() {
   };
 
   while (remaining > 0) {
-    // 1) Greedily start ready ops on free engines.
+    // 1) Greedily start ready ops on free engines, across all cores.
     bool started = true;
     while (started) {
       started = false;
-      // DMA: in-order, up to dma_channels concurrent.
-      if (head[0] < q[0].size() && dma_in_flight() < dma_channels &&
-          ready(prog_.instrs[q[0][head[0]]])) {
-        start_instr(0); started = true;
-      }
-      // TENSOR / VECTOR: single unit each.
-      for (int e = 1; e < 3; ++e) {
-        bool busy = false;
-        for (auto& r : running) if (int(r.engine) == e) { busy = true; break; }
-        if (!busy && head[e] < q[e].size() && ready(prog_.instrs[q[e][head[e]]])) {
-          start_instr(e); started = true;
+      for (int c = 0; c < ncores; ++c) {
+        // DMA: in-order, up to dma_channels concurrent per core.
+        if (head[c][0] < q[c][0].size() && dma_in_flight(c) < dma_channels &&
+            ready(prog_.instrs[q[c][0][head[c][0]]])) {
+          start_instr(c, 0); started = true;
+        }
+        // TENSOR / VECTOR: single unit each, per core.
+        for (int e = 1; e < 3; ++e) {
+          bool busy = false;
+          for (auto& r : running) if (r.core == c && int(r.engine) == e) { busy = true; break; }
+          if (!busy && head[c][e] < q[c][e].size() && ready(prog_.instrs[q[c][e][head[c][e]]])) {
+            start_instr(c, e); started = true;
+          }
         }
       }
     }

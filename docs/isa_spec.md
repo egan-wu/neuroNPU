@@ -70,7 +70,9 @@ need no event.
 They are positional and follow the op's descriptor operands. (`#` and `;` start comments,
 so immediates must not use `#`.)
 
-Every instruction accepts optional trailing `@wait eN` and/or `@sig eN`.
+Every instruction accepts optional trailing `@wait eN`, `@sig eN`, and `@core N`
+(which core/tile runs it; default 0 — see Multi-core below). Events are global, so a
+`@wait` can depend on another core's `@sig`.
 
 ## Assembly (`.npuasm`) directives
 
@@ -113,8 +115,17 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- All coarse compute opcodes are implemented; remaining roadmap is architectural
-  (multi-core/tile, energy modeling).
+- All coarse compute opcodes are implemented; remaining roadmap is energy modeling and
+  per-core (rather than shared) SRAM.
+
+## Multi-core
+
+Set `num_cores > 1` (config) and tag instructions with `@core N`. Each core has its own
+TENSOR/VECTOR unit and its own `dma_channels`; cores run concurrently. **DDR and SRAM
+bandwidth are shared globally**, so cores contend for memory (the realistic effect). SRAM
+is currently one shared address space — the compiler partitions it across cores by
+address (per-core private SRAM is a future refinement). Use global events to synchronize
+across cores.
 
 ## Loops
 

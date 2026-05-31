@@ -1,0 +1,37 @@
+# multicore.npuasm — two independent matmul chains on two cores (run with
+# num_cores >= 2, e.g. configs/dual_core.yaml). The chains have disjoint buffers
+# and disjoint event ids, so cores 0 and 1 execute concurrently (separate TENSOR
+# units) while sharing DDR/SRAM bandwidth.
+#
+# core 0: A0(=1) @ B0(=1) -> Y0 = 64 (sum over K=64)
+# core 1: A1(=2) @ B1(=1) -> Y1 = 128
+
+.desc A0  ddr  f32 0x00000 64x64
+.desc B0  ddr  f32 0x10000 64x64
+.desc Y0  ddr  f32 0x20000 64x64
+.desc A1  ddr  f32 0x30000 64x64
+.desc B1  ddr  f32 0x40000 64x64
+.desc Y1  ddr  f32 0x50000 64x64
+.desc sA0 sram f32 0x00000 64x64
+.desc sB0 sram f32 0x04000 64x64
+.desc sY0 sram f32 0x08000 64x64
+.desc sA1 sram f32 0x10000 64x64
+.desc sB1 sram f32 0x14000 64x64
+.desc sY1 sram f32 0x18000 64x64
+.data A0 const 1
+.data B0 const 1
+.data A1 const 2
+.data B1 const 1
+
+# core 0 chain
+DMA.LOAD  sA0 A0       @core 0 @sig 0
+DMA.LOAD  sB0 B0       @core 0 @sig 1
+MATMUL    sY0 sA0 sB0  @core 0 @wait 1 @sig 2
+DMA.STORE Y0 sY0       @core 0 @wait 2
+
+# core 1 chain
+DMA.LOAD  sA1 A1       @core 1 @sig 10
+DMA.LOAD  sB1 B1       @core 1 @sig 11
+MATMUL    sY1 sA1 sB1  @core 1 @wait 11 @sig 12
+DMA.STORE Y1 sY1       @core 1 @wait 12
+HALT

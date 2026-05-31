@@ -186,6 +186,8 @@ Program assemble(const std::string& text) {
                           in.wait_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
       if (a == "@sig")  { if (++i >= tok.size()) err("@sig needs event");
                           in.signal_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
+      if (a == "@core") { if (++i >= tok.size()) err("@core needs id");
+                          in.core = std::stoi(tok[i]); continue; }
       if (a[0] == '$')  { in.imms.push_back(std::stod(a.substr(1))); continue; }  // immediate
       int id = p.descriptor_id(a);
       if (id < 0) err("unknown descriptor '" + a + "'");
@@ -291,7 +293,7 @@ static std::string get_str(std::istream& i) {
 void write_binary(const Program& p, const std::string& path) {
   std::ofstream o(path, std::ios::binary);
   if (!o) throw std::runtime_error("cannot write binary: " + path);
-  o.write("NPUB", 4); put<uint32_t>(o, 3u);
+  o.write("NPUB", 4); put<uint32_t>(o, 4u);
 
   put<uint32_t>(o, uint32_t(p.descriptors.size()));
   for (const auto& d : p.descriptors) {
@@ -312,6 +314,7 @@ void write_binary(const Program& p, const std::string& path) {
     put<uint8_t>(o, in.accumulate ? 1 : 0);
     put<int32_t>(o, in.wait_event);
     put<int32_t>(o, in.signal_event);
+    put<int32_t>(o, in.core);
     put<uint16_t>(o, uint16_t(in.args.size()));
     for (auto a : in.args) put<int32_t>(o, a);
     put<uint16_t>(o, uint16_t(in.imms.size()));
@@ -332,7 +335,7 @@ Program read_binary(const std::string& path) {
   char magic[4]; in.read(magic, 4);
   if (std::memcmp(magic, "NPUB", 4) != 0) throw std::runtime_error("bad magic in " + path);
   uint32_t ver = get<uint32_t>(in);
-  if (ver != 3) throw std::runtime_error("unsupported .npubin version (expected 3)");
+  if (ver != 4) throw std::runtime_error("unsupported .npubin version (expected 4)");
 
   Program p;
   uint32_t nd = get<uint32_t>(in);
@@ -356,6 +359,7 @@ Program read_binary(const std::string& path) {
     in2.accumulate = get<uint8_t>(in) != 0;
     in2.wait_event = get<int32_t>(in);
     in2.signal_event = get<int32_t>(in);
+    in2.core = get<int32_t>(in);
     uint16_t na = get<uint16_t>(in);
     for (uint16_t j = 0; j < na; ++j) in2.args.push_back(get<int32_t>(in));
     uint16_t nm = get<uint16_t>(in);

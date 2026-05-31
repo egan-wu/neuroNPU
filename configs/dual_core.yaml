@@ -1,0 +1,12 @@
+# Two cores/tiles sharing DDR + SRAM bandwidth.
+core_clock_ghz: 1.0
+num_cores: 2
+mac_rows: 32
+mac_cols: 32
+ddr_freq_mhz: 3200
+ddr_width_bits: 64
+ddr_channels: 2
+ddr_latency_ns: 100
+dma_channels: 1
+sram_banks: 16
+sram_bank_width_bytes: 16

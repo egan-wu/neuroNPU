@@ -1,5 +1,6 @@
 #include "neuronpu/perf.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 
@@ -12,12 +13,14 @@ PerfReport analyze(const RunResult& r, const Config& cfg) {
 
   double busy_dma = r.engine_busy[int(Engine::DMA)];
   double busy_ve  = r.engine_busy[int(Engine::VECTOR)];
-  double denom = r.total_cycles > 0 ? r.total_cycles : 1.0;
+  int    cores    = std::max(1, cfg.num_cores);
+  // engine_busy aggregates across cores; normalize so utilization is per-core average.
+  double denom = (r.total_cycles > 0 ? r.total_cycles : 1.0) * cores;
 
   rep.dma_util = busy_dma / denom;
   rep.ve_util  = busy_ve / denom;
 
-  // MAC-array utilization: useful MACs / (peak MACs/cycle * total cycles).
+  // MAC-array utilization: useful MACs / (peak MACs/cycle * total cycles * cores).
   double peak_macs = cfg.te_peak_macs_per_cycle() * denom;
   rep.te_util = peak_macs > 0 ? r.total_macs / peak_macs : 0.0;
 
@@ -29,7 +32,7 @@ PerfReport analyze(const RunResult& r, const Config& cfg) {
   rep.arithmetic_intensity = r.ddr_bytes > 0 ? r.total_macs / double(r.ddr_bytes) : 0.0;
   // Compare compute-bound vs memory-bound time lower bounds.
   double compute_ns = cfg.te_peak_macs_per_cycle() > 0
-      ? (r.total_macs / cfg.te_peak_macs_per_cycle()) / cfg.core_clock_ghz : 0.0;
+      ? (r.total_macs / (cfg.te_peak_macs_per_cycle() * cores)) / cfg.core_clock_ghz : 0.0;
   double memory_ns = rep.ddr_peak_gbps > 0 ? double(r.ddr_bytes) / rep.ddr_peak_gbps : 0.0;
   rep.memory_bound = memory_ns > compute_ns;
   return rep;

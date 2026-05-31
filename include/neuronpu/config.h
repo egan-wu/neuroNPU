@@ -9,6 +9,7 @@ namespace neuronpu {
 struct Config {
   // Core
   double   core_clock_ghz = 1.0;   // global sim time unit is core-clock cycles
+  int      num_cores      = 1;     // independent cores/tiles (share DDR + SRAM BW)
 
   // Tensor Engine (systolic MAC array)
   int      mac_rows = 32;

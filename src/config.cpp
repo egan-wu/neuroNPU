@@ -55,6 +55,7 @@ Config Config::load(const std::string& path) {
   };
 
   getd("core_clock_ghz", c.core_clock_ghz);
+  geti("num_cores", c.num_cores);
   geti("mac_rows", c.mac_rows);
   geti("mac_cols", c.mac_cols);
   geti("vector_lanes", c.vector_lanes);
@@ -74,6 +75,7 @@ Config Config::load(const std::string& path) {
 void Config::dump() const {
   std::printf("Config:\n");
   std::printf("  core_clock      : %.3f GHz\n", core_clock_ghz);
+  std::printf("  num_cores       : %d\n", num_cores);
   std::printf("  mac array       : %d x %d (%.0f MACs/cyc)\n", mac_rows, mac_cols,
               te_peak_macs_per_cycle());
   std::printf("  vector_lanes    : %d\n", vector_lanes);
