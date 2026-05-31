@@ -1,0 +1,17 @@
+# dma_contention.npuasm — two independent loads, no dependency between them.
+#
+# channels=1: the loads serialise        -> ~520 cycles.
+# channels=2: they overlap but SHARE DDR  -> ~420 cycles (each transfer runs at
+#             half bandwidth, so 2 channels is faster but not 2x). This is the
+#             DDR-contention effect.
+
+.desc A  ddr  f32 0x00000 64x64
+.desc B  ddr  f32 0x10000 64x64
+.desc sA sram f32 0x0000  64x64
+.desc sB sram f32 0x4000  64x64
+.data A iota
+.data B iota
+
+DMA.LOAD  sA A
+DMA.LOAD  sB B
+HALT

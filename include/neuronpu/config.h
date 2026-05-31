@@ -23,6 +23,7 @@ struct Config {
   int      ddr_channels   = 2;
   double   ddr_latency_ns = 100.0; // fixed access latency added per DMA burst
   uint64_t ddr_size_mb    = 4096;
+  int      dma_channels   = 1;     // concurrent DMA transfers (share DDR bandwidth)
 
   // SRAM scratchpad (on-chip, software-managed)
   uint64_t sram_size_kb   = 4096;

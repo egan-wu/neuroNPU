@@ -63,6 +63,7 @@ Config Config::load(const std::string& path) {
   geti("ddr_channels", c.ddr_channels);
   getd("ddr_latency_ns", c.ddr_latency_ns);
   getu("ddr_size_mb", c.ddr_size_mb);
+  geti("dma_channels", c.dma_channels);
   getu("sram_size_kb", c.sram_size_kb);
   geti("sram_banks", c.sram_banks);
   getb("double_buffer", c.double_buffer);
@@ -78,6 +79,7 @@ void Config::dump() const {
   std::printf("  ddr             : %.0f MHz, %d-bit x%d ch, lat %.0f ns => %.1f GB/s\n",
               ddr_freq_mhz, ddr_width_bits, ddr_channels, ddr_latency_ns,
               ddr_peak_bytes_per_ns());
+  std::printf("  dma_channels    : %d\n", dma_channels);
   std::printf("  sram            : %llu KB, %d banks\n",
               (unsigned long long)sram_size_kb, sram_banks);
   std::printf("  double_buffer   : %s\n", double_buffer ? "on" : "off");

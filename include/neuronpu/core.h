@@ -22,8 +22,8 @@ class Core {
   std::vector<float> read_tensor(const std::string& name, int64_t max_elems) const;
 
  private:
-  // Timing models (return duration in core-clock cycles).
-  double dma_cycles(uint64_t bytes) const;
+  // Timing models (return duration in core-clock cycles). DMA timing is handled
+  // by the scheduler (fluid bandwidth sharing), not a fixed per-op formula.
   double matmul_cycles(int64_t M, int64_t N, int64_t K) const;
   double vector_cycles(int64_t elems, double passes = 1.0) const;
 

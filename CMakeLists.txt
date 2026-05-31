@@ -34,3 +34,7 @@ add_test(NAME conv
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/conv.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME dma_contention
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/dma_contention.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)

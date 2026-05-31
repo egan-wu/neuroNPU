@@ -17,6 +17,7 @@ ddr_width_bits: 64       # bus width per channel
 ddr_channels: 2
 ddr_latency_ns: 100      # fixed latency added per DMA burst
 ddr_size_mb: 4096
+dma_channels: 1          # concurrent DMA transfers; >1 share DDR bandwidth fairly
 
 # --- SRAM scratchpad (on-chip, software-managed) ---
 sram_size_kb: 4096

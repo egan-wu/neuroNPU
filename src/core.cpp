@@ -19,11 +19,6 @@ Core::Core(const Program& prog, const Config& cfg)
   }
 }
 
-double Core::dma_cycles(uint64_t bytes) const {
-  double ns = double(bytes) / cfg_.ddr_peak_bytes_per_ns() + cfg_.ddr_latency_ns;
-  return ns * cfg_.core_clock_ghz;  // cycles = ns * (cycles/ns)
-}
-
 double Core::matmul_cycles(int64_t M, int64_t N, int64_t K) const {
   double macs = double(M) * double(N) * double(K);
   double compute = macs / cfg_.te_peak_macs_per_cycle();
@@ -59,6 +54,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
 
     case Opcode::DMA_LOAD:
     case Opcode::DMA_STORE: {
+      // Functional copy only; timing (+ DdrRecord) is finalised by the scheduler,
+      // which models DDR-bandwidth contention across concurrent channels.
       const Descriptor& dst = prog_.descriptors[in.args.at(0)];
       const Descriptor& src = prog_.descriptors[in.args.at(1)];
       uint64_t n = uint64_t(src.bytes());
@@ -66,17 +63,7 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       mem_.space(src.space).read(src.base_addr, buf.data(), n);
       mem_.space(dst.space).write(dst.base_addr, buf.data(), n);
       rec.bytes = n;
-      rec.cycles = dma_cycles(n);
       out.ddr_bytes += n;
-      DdrRecord dr;
-      dr.is_load = (in.op == Opcode::DMA_LOAD);
-      dr.descriptor = dr.is_load ? src.name : dst.name;
-      dr.addr = dr.is_load ? src.base_addr : dst.base_addr;
-      dr.bytes = n;
-      dr.cycles = rec.cycles;
-      dr.start = rec.start;
-      dr.end = rec.start + rec.cycles;
-      out.ddr.push_back(dr);
       return;
     }
 
@@ -272,60 +259,158 @@ std::vector<float> Core::read_tensor(const std::string& name, int64_t max_elems)
   return v;
 }
 
+// An instruction currently executing on an engine.
+namespace {
+struct Running {
+  int         instr_idx;
+  Engine      engine;
+  double      start;
+  // compute ops: remaining cycles, rate 1. DMA ops: remaining bytes at a
+  // bandwidth-share rate, after an initial latency phase ending at data_start.
+  double      cycles_remaining = 0;
+  double      bytes_remaining = 0;
+  double      data_start = 0;    // DMA: time the latency phase ends
+  bool        is_dma = false;
+  InstrRecord rec;
+};
+}  // namespace
+
 RunResult Core::run() {
   RunResult out;
   out.instrs.reserve(prog_.instrs.size());
+  out.clock_ghz = cfg_.core_clock_ghz;
 
-  // Partition instructions into per-engine in-order queues.
+  // Per-engine in-order queues.
   std::vector<int> q[3];
   for (int i = 0; i < int(prog_.instrs.size()); ++i)
     q[int(prog_.instrs[i].engine())].push_back(i);
-
   size_t head[3] = {0, 0, 0};
-  double engfree[3] = {0, 0, 0};
-  std::unordered_map<int, double> ev;  // event id -> time it was signaled
+
+  std::unordered_map<int, double> ev;     // event id -> signaled time
+  std::vector<Running> running;
   int remaining = int(prog_.instrs.size());
+  double now = 0;
+
+  const double bytes_per_cycle = cfg_.ddr_peak_bytes_per_ns() / cfg_.core_clock_ghz;
+  const double latency_cycles = cfg_.ddr_latency_ns * cfg_.core_clock_ghz;
+  const int    dma_channels = std::max(1, cfg_.dma_channels);
+  const double EPS = 1e-9;
+
+  auto ready = [&](const Instr& in) {
+    return in.wait_event < 0 || ev.find(in.wait_event) != ev.end();
+  };
+  auto dma_in_flight = [&] {
+    int n = 0; for (auto& r : running) if (r.is_dma) ++n; return n;
+  };
+
+  // Start an instruction on its engine at time `now`.
+  auto start_instr = [&](int e) {
+    int ii = q[e][head[e]++];
+    const Instr& in = prog_.instrs[ii];
+    Running r;
+    r.instr_idx = ii;
+    r.engine = Engine(e);
+    r.start = now;
+    r.rec.idx = ii;
+    r.rec.op = in.op;
+    r.rec.engine = Engine(e);
+    r.rec.wait_event = in.wait_event;
+    r.rec.signal_event = in.signal_event;
+    r.rec.start = now;
+    exec(in, r.rec, out);  // functional work; sets macs/bytes and (non-DMA) cycles
+    if (in.op == Opcode::DMA_LOAD || in.op == Opcode::DMA_STORE) {
+      r.is_dma = true;
+      r.bytes_remaining = double(r.rec.bytes);
+      r.data_start = now + latency_cycles;
+    } else {
+      r.cycles_remaining = r.rec.cycles;  // NOP/HALT have 0 cycles -> retire at once
+    }
+    running.push_back(std::move(r));
+  };
 
   while (remaining > 0) {
-    int best = -1;
-    double best_start = std::numeric_limits<double>::max();
-    for (int e = 0; e < 3; ++e) {
-      if (head[e] >= q[e].size()) continue;
-      const Instr& in = prog_.instrs[q[e][head[e]]];
-      double wt = 0;
-      if (in.wait_event >= 0) {
-        auto it = ev.find(in.wait_event);
-        if (it == ev.end()) continue;  // not ready
-        wt = it->second;
+    // 1) Greedily start ready ops on free engines.
+    bool started = true;
+    while (started) {
+      started = false;
+      // DMA: in-order, up to dma_channels concurrent.
+      if (head[0] < q[0].size() && dma_in_flight() < dma_channels &&
+          ready(prog_.instrs[q[0][head[0]]])) {
+        start_instr(0); started = true;
       }
-      double start = std::max(engfree[e], wt);
-      if (start < best_start) { best_start = start; best = e; }
+      // TENSOR / VECTOR: single unit each.
+      for (int e = 1; e < 3; ++e) {
+        bool busy = false;
+        for (auto& r : running) if (int(r.engine) == e) { busy = true; break; }
+        if (!busy && head[e] < q[e].size() && ready(prog_.instrs[q[e][head[e]]])) {
+          start_instr(e); started = true;
+        }
+      }
     }
-    if (best < 0)
+
+    if (running.empty())
       throw std::runtime_error("scheduler deadlock: instruction waiting on an "
                                "event that is never signaled");
 
-    int ii = q[best][head[best]++];
-    const Instr& in = prog_.instrs[ii];
-    InstrRecord rec;
-    rec.idx = ii;
-    rec.op = in.op;
-    rec.engine = in.engine();
-    rec.wait_event = in.wait_event;
-    rec.signal_event = in.signal_event;
-    rec.start = best_start;
-    exec(in, rec, out);           // sets rec.cycles / macs / bytes
-    rec.end = rec.start + rec.cycles;
+    // 2) Current DDR bandwidth share among transferring DMA ops.
+    int transferring = 0;
+    for (auto& r : running)
+      if (r.is_dma && now >= r.data_start - EPS && r.bytes_remaining > EPS) ++transferring;
+    double share = bytes_per_cycle / std::max(1, transferring);
 
-    engfree[best] = rec.end;
-    out.engine_busy[best] += rec.cycles;
-    if (in.signal_event >= 0) ev[in.signal_event] = rec.end;
-    out.instrs.push_back(rec);
-    --remaining;
+    // 3) Time to the next event (completion or a latency phase ending).
+    double dt = std::numeric_limits<double>::max();
+    for (auto& r : running) {
+      double t;
+      if (!r.is_dma)                         t = r.cycles_remaining;            // compute
+      else if (now < r.data_start - EPS)     t = r.data_start - now;            // latency
+      else                                   t = r.bytes_remaining / share;     // transfer
+      dt = std::min(dt, t);
+    }
+
+    // 4) Progress all running ops over the interval [now, now+dt], using the
+    //    pre-advance time to classify each DMA op (latency vs transfer); event
+    //    boundaries guarantee no op crosses its data_start mid-interval.
+    for (auto& r : running) {
+      if (!r.is_dma) r.cycles_remaining -= dt;
+      else if (now >= r.data_start - EPS) r.bytes_remaining -= share * dt;
+    }
+    now += dt;
+
+    // 5) Retire completed ops.
+    for (auto it = running.begin(); it != running.end();) {
+      bool done = it->is_dma ? (it->bytes_remaining <= EPS && now >= it->data_start - EPS)
+                             : (it->cycles_remaining <= EPS);
+      if (!done) { ++it; continue; }
+      const Instr& in = prog_.instrs[it->instr_idx];
+      it->rec.end = now;
+      it->rec.cycles = now - it->start;
+      out.engine_busy[int(it->engine)] += it->rec.cycles;
+      if (it->is_dma) {
+        DdrRecord dr;
+        dr.is_load = (in.op == Opcode::DMA_LOAD);
+        const Descriptor& d = prog_.descriptors[in.args.at(dr.is_load ? 1 : 0)];
+        dr.descriptor = d.name;
+        dr.addr = d.base_addr;
+        dr.bytes = it->rec.bytes;
+        dr.start = it->start;
+        dr.end = now;
+        dr.cycles = it->rec.cycles;
+        out.ddr.push_back(dr);
+      }
+      if (in.signal_event >= 0) ev[in.signal_event] = now;
+      out.instrs.push_back(it->rec);
+      --remaining;
+      it = running.erase(it);
+    }
   }
 
-  out.total_cycles = std::max({engfree[0], engfree[1], engfree[2]});
-  out.clock_ghz = cfg_.core_clock_ghz;
+  // Instruction records were retired out of issue order; sort by start time.
+  std::sort(out.instrs.begin(), out.instrs.end(),
+            [](const InstrRecord& a, const InstrRecord& b) {
+              return a.start < b.start || (a.start == b.start && a.idx < b.idx);
+            });
+  out.total_cycles = now;
   return out;
 }
 

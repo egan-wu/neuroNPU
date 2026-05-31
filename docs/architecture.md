@@ -48,15 +48,20 @@ an analytical formula, not per-cycle simulation:
 
 | Op | Cycles |
 |----|--------|
-| DMA | `bytes / ddr_peak_bytes_per_ns + ddr_latency_ns`, converted to cycles via `core_clock_ghz` |
+| DMA | `ddr_latency_ns` (fixed) + `bytes / effective_bandwidth`, where bandwidth is **shared fairly** among concurrent transfers |
 | MATMUL `[M,K]×[K,N]` | `M·N·K / (mac_rows·mac_cols) + (mac_rows + mac_cols)` (compute + systolic fill) |
-| Vector | `elems / vector_lanes + overhead` |
+| Vector | `elems · passes / vector_lanes + overhead` (`passes` ≈ op cost: softmax≈5, norm≈3-4) |
+
+The scheduler is a **discrete-event simulator**. Compute ops occupy their (single) engine
+for a fixed duration. DMA is different: up to `dma_channels` transfers run concurrently and
+**share total DDR bandwidth** via progressive (fluid) filling — bandwidth is re-divided
+whenever the set of active transfers changes. So `dma_channels: 2` overlaps two loads but
+each runs at ~half bandwidth: faster than serial, but **not** 2×. This is the modeled
+DDR-contention effect.
 
 **Functional results are exact** (fp32 accumulate) and fully decoupled from timing.
 The known approximation is that op-internal, per-cycle effects (bank conflicts, pipeline
-bubbles) are not modeled. The one effect that *is* modeled deliberately is shared-resource
-contention; today a single DMA engine serialises DDR access, so there is no
-under-counting. Multi-channel DDR contention is a planned extension (see below).
+bubbles) are not modeled. SRAM port contention is not yet modeled (DDR bandwidth is).
 
 ## Logging & metrics
 
@@ -80,9 +85,10 @@ SRAM (size/banks), feature flags. Loaded at startup.
 
 ## Roadmap (post-MVP)
 
-1. VE breadth: `SOFTMAX`, `RMSNORM`/`LAYERNORM`, `GELU`/`SiLU`, `REQUANT`, `ROPE`, `CONV`.
-2. `LOOP`/control flow to keep multi-layer LLM binaries compact.
-3. Multi-DMA-channel + SRAM port contention modeling (shared-resource arbitration).
-4. Multi-core / multi-tile scaling.
-5. Optional energy/power estimation.
-6. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end.
+1. ~~VE breadth: `SOFTMAX`, `RMSNORM`/`LAYERNORM`, `GELU`/`SiLU`, `REQUANT`~~ ✅ · remaining: `ROPE`.
+2. ~~`CONV`~~ ✅
+3. ~~Multi-DMA-channel + DDR contention~~ ✅ · remaining: SRAM port contention.
+4. `LOOP`/control flow to keep multi-layer LLM binaries compact.
+5. Multi-core / multi-tile scaling.
+6. Optional energy/power estimation.
+7. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end.
