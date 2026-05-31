@@ -51,5 +51,11 @@ The bundled `matmul.npuasm` computes `Y = A @ B` (A = iota, B = ones), so
 
 ## Status
 
-MVP vertical slice (DMA · MATMUL · VADD/RELU · event sync · logging · perf). See the
-roadmap in [docs/architecture.md](docs/architecture.md) toward Llama / YOLO support.
+Full coarse ISA implemented: DMA · MATMUL · CONV · VADD/RELU/GELU/SiLU/SOFTMAX/
+RMSNORM/LAYERNORM/REQUANT/ROPE · event sync · nested LOOPs · multi-core (private SRAM).
+The discrete-event scheduler models DDR + per-core SRAM bandwidth contention; the perf
+report covers utilization, roofline, and an energy/power estimate. A hand-written
+single-layer transformer block
+([tests/isa_programs/transformer_block.npuasm](tests/isa_programs/transformer_block.npuasm))
+runs the whole stack end to end. See the roadmap in
+[docs/architecture.md](docs/architecture.md); remaining work is on the compiler side.

@@ -22,7 +22,9 @@ name | space(ddr|sram) | dtype | base_addr(bytes) | dims[] | strides[]
 
 - `dtype` ∈ `f32`, `f16`, `bf16`, `i8` (compute accumulates in fp32).
 - `base_addr` is a **byte** offset within its space.
-- `strides` are in **elements**; if omitted, row-major contiguous is assumed.
+- `strides` are in **elements**; if omitted, row-major contiguous is assumed. In `.npuasm`
+  a trailing `:s0,s1,...` sets them — e.g. a transposed view `kT` of `k[S,D]` is
+  `.desc kT sram f32 <addr> DxS :1,S`.
 - an optional trailing `+N` gives an **iteration stride** (elements): inside a `LOOP`
   the descriptor's `base_addr` advances by `N` elements each iteration.
 
@@ -78,7 +80,7 @@ Every instruction accepts optional trailing `@wait eN`, `@sig eN`, and `@core N`
 
 | Directive | Form | Purpose |
 |-----------|------|---------|
-| `.desc`   | `.desc NAME ddr\|sram DTYPE BASE DIMS [+ITERSTRIDE]` | declare a descriptor (declare before use) |
+| `.desc`   | `.desc NAME ddr\|sram DTYPE BASE DIMS [+ITERSTRIDE] [:STRIDES]` | declare a descriptor (declare before use) |
 | `.data`   | `.data NAME MODE [ARG]` | preload a descriptor's memory |
 
 `DIMS` accepts `x`- or `,`-separated extents (e.g. `64x64`). `BASE` accepts hex (`0x...`)

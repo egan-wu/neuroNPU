@@ -161,8 +161,13 @@ Program assemble(const std::string& text) {
       d.dtype = dtype_from_string(tok[3]);
       d.base_addr = parse_addr(tok[4]);
       d.dims = parse_dims(tok[5]);
-      if (tok.size() > 6 && tok[6][0] == '+')  // optional per-iteration stride (elements)
-        d.iter_stride = std::stoll(tok[6].substr(1));
+      for (size_t t = 6; t < tok.size(); ++t) {  // optional trailing modifiers
+        if (tok[t][0] == '+')      d.iter_stride = std::stoll(tok[t].substr(1));  // iter stride
+        else if (tok[t][0] == ':') d.strides = parse_dims(tok[t].substr(1));      // element strides
+        else err("unexpected .desc modifier '" + tok[t] + "'");
+      }
+      if (!d.strides.empty() && d.strides.size() != d.dims.size())
+        err(".desc strides rank must match dims");
       if (p.descriptor_id(d.name) != -1) err("duplicate descriptor " + d.name);
       p.descriptors.push_back(std::move(d));
       continue;

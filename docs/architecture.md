@@ -101,4 +101,6 @@ SRAM (size/banks), feature flags. Loaded at startup.
 4. ~~`LOOP`/control flow (nested) to keep multi-layer LLM binaries compact~~ ✅
 5. ~~Multi-core / multi-tile scaling · per-core private SRAM~~ ✅
 6. ~~Energy/power estimation~~ ✅
-7. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end.
+7. End goal: run a compiler-emitted Llama / YOLO ONNX graph end-to-end. A hand-written
+   single-layer transformer block ([`../tests/isa_programs/transformer_block.npuasm`](../tests/isa_programs/transformer_block.npuasm))
+   already runs the full op stack end to end; the remaining work is on the compiler side.
