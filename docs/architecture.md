@@ -64,6 +64,8 @@ A run produces (see [`../src/logger.cpp`](../src/logger.cpp)):
 
 - `isa_trace.jsonl` — every instruction with `start/end/cycles`, engine, wait/signal, macs/bytes.
 - `ddr_trace.csv` — every DDR burst: direction, descriptor, address, bytes, cycles.
+- `trace.json` — Chrome Trace Event Format; drag into <https://ui.perfetto.dev> to see the
+  time sequence as per-engine tracks plus a cumulative-DDR-bytes counter.
 - `perf.json` — the analysis below.
 
 The analyzer ([`../src/perf.cpp`](../src/perf.cpp)) derives: total cycles/time, **MAC-array

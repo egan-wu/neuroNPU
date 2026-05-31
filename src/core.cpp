@@ -191,6 +191,7 @@ RunResult Core::run() {
   }
 
   out.total_cycles = std::max({engfree[0], engfree[1], engfree[2]});
+  out.clock_ghz = cfg_.core_clock_ghz;
   return out;
 }
 

@@ -40,7 +40,8 @@ cmake --build build -j
 
 The bundled `matmul.npuasm` computes `Y = A @ B` (A = iota, B = ones), so
 `Y[m,n] = 4096·m + 2016`; `--dump Y` should print `2016 …` for row 0. Outputs land in
-`--out`: `isa_trace.jsonl`, `ddr_trace.csv`, `perf.json`.
+`--out`: `isa_trace.jsonl`, `ddr_trace.csv`, `perf.json`, and `trace.json` (drag into
+<https://ui.perfetto.dev> for the per-engine time sequence).
 
 ## Documentation
 

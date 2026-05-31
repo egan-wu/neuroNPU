@@ -38,6 +38,7 @@ struct RunResult {
   std::vector<InstrRecord> instrs;
   std::vector<DdrRecord>   ddr;
   double                   total_cycles = 0;
+  double                   clock_ghz = 1.0;       // for cycle -> time conversion
   std::array<double, 3>    engine_busy{0, 0, 0};  // indexed by Engine
   double                   total_macs = 0;
   uint64_t                 ddr_bytes = 0;
@@ -50,6 +51,7 @@ class Logger {
   void write(const RunResult& r) const;
 
  private:
+  void write_perfetto(const RunResult& r) const;  // Chrome/Perfetto trace.json
   std::string dir_;
 };
 
