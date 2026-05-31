@@ -30,7 +30,7 @@ class Core {
   // Functional execution of one instruction.
   void exec(const Instr& in, InstrRecord& rec, RunResult& out);
 
-  const Program& prog_;
+  Program        prog_;   // flattened (loops expanded) copy of the program
   const Config&  cfg_;
   Memory         mem_;
 };

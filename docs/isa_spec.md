@@ -23,6 +23,8 @@ name | space(ddr|sram) | dtype | base_addr(bytes) | dims[] | strides[]
 - `dtype` ∈ `f32`, `f16`, `bf16`, `i8` (compute accumulates in fp32).
 - `base_addr` is a **byte** offset within its space.
 - `strides` are in **elements**; if omitted, row-major contiguous is assumed.
+- an optional trailing `+N` gives an **iteration stride** (elements): inside a `LOOP`
+  the descriptor's `base_addr` advances by `N` elements each iteration.
 
 ### Events (synchronization)
 Engines run asynchronously. A cross-engine dependency is expressed with events:
@@ -39,6 +41,7 @@ need no event.
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL`, `CONV` |
 | `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE` |
+| control  | `LOOP`, `ENDLOOP` (expanded at load) |
 | (any)    | `NOP`, `HALT` |
 
 ## Instruction reference
@@ -58,6 +61,8 @@ need no event.
 | `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
 | `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
 | `ROPE`      | `ROPE out in $base $pos_offset` | rotary embedding on pairs along the last dim; position = row + `pos_offset`; `base` default 10000 |
+| `LOOP`      | `LOOP $count` … `ENDLOOP` | repeat the body `count` times (see loops below) |
+| `ENDLOOP`   | `ENDLOOP` | close the nearest `LOOP` |
 | `NOP`       | `NOP` | nothing |
 | `HALT`      | `HALT` | end marker (0 cycles) |
 
@@ -71,7 +76,7 @@ Every instruction accepts optional trailing `@wait eN` and/or `@sig eN`.
 
 | Directive | Form | Purpose |
 |-----------|------|---------|
-| `.desc`   | `.desc NAME ddr\|sram DTYPE BASE DIMS` | declare a descriptor (declare before use) |
+| `.desc`   | `.desc NAME ddr\|sram DTYPE BASE DIMS [+ITERSTRIDE]` | declare a descriptor (declare before use) |
 | `.data`   | `.data NAME MODE [ARG]` | preload a descriptor's memory |
 
 `DIMS` accepts `x`- or `,`-separated extents (e.g. `64x64`). `BASE` accepts hex (`0x...`)
@@ -108,4 +113,20 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- Planned opcodes (not yet implemented): `LOOP`.
+- All coarse compute opcodes are implemented; remaining roadmap is architectural
+  (multi-core/tile, energy modeling).
+
+## Loops
+
+`LOOP $count` … `ENDLOOP` brackets a body that the **simulator expands at load time**
+(`flatten_loops`). This keeps multi-layer binaries compact while running the full work.
+Per iteration `k`:
+
+- any descriptor with an iteration stride (`+N`) has its `base_addr` advanced by `k·N`
+  elements (a fresh address variant is generated);
+- events are renamed into a per-iteration namespace, so an iteration's internal
+  `@wait`/`@sig` never alias another iteration's.
+
+Cross-iteration data dependencies (e.g. a residual buffer reused every layer) are the
+compiler's responsibility: keep producer/consumer on the same engine (implicit in-order)
+or reuse a fixed buffer (stride 0). Nesting is not supported yet (one loop level).

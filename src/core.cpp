@@ -10,7 +10,7 @@
 namespace neuronpu {
 
 Core::Core(const Program& prog, const Config& cfg)
-    : prog_(prog), cfg_(cfg),
+    : prog_(flatten_loops(prog)), cfg_(cfg),
       mem_(cfg.ddr_size_mb * 1024ull * 1024ull, cfg.sram_size_kb * 1024ull) {
   // Preload initial data into each descriptor's memory space.
   for (const auto& kv : prog_.init_data) {
@@ -50,6 +50,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
   switch (in.op) {
     case Opcode::NOP:
     case Opcode::HALT:
+    case Opcode::LOOP:      // removed by flatten_loops(); no-op if it ever reaches here
+    case Opcode::ENDLOOP:
       return;
 
     case Opcode::DMA_LOAD:

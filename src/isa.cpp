@@ -1,9 +1,11 @@
 #include "neuronpu/isa.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 namespace neuronpu {
 
@@ -23,6 +25,7 @@ const char* opcode_name(Opcode o) {
     case Opcode::RMSNORM: return "RMSNORM";   case Opcode::LAYERNORM: return "LAYERNORM";
     case Opcode::REQUANT: return "REQUANT";   case Opcode::CONV: return "CONV";
     case Opcode::ROPE: return "ROPE";
+    case Opcode::LOOP: return "LOOP";         case Opcode::ENDLOOP: return "ENDLOOP";
   }
   return "?";
 }
@@ -107,6 +110,8 @@ static Opcode parse_opcode(const std::string& s, bool& ok) {
   if (s == "REQUANT") return Opcode::REQUANT;
   if (s == "CONV") return Opcode::CONV;
   if (s == "ROPE") return Opcode::ROPE;
+  if (s == "LOOP") return Opcode::LOOP;
+  if (s == "ENDLOOP") return Opcode::ENDLOOP;
   ok = false; return Opcode::NOP;
 }
 
@@ -155,6 +160,8 @@ Program assemble(const std::string& text) {
       d.dtype = dtype_from_string(tok[3]);
       d.base_addr = parse_addr(tok[4]);
       d.dims = parse_dims(tok[5]);
+      if (tok.size() > 6 && tok[6][0] == '+')  // optional per-iteration stride (elements)
+        d.iter_stride = std::stoll(tok[6].substr(1));
       if (p.descriptor_id(d.name) != -1) err("duplicate descriptor " + d.name);
       p.descriptors.push_back(std::move(d));
       continue;
@@ -196,6 +203,76 @@ Program assemble_file(const std::string& path) {
   return assemble(ss.str());
 }
 
+// ----------------------------- loop flattening -----------------------------
+
+Program flatten_loops(const Program& p) {
+  // Fast path: nothing to do.
+  bool has_loop = false;
+  for (const auto& in : p.instrs)
+    if (in.op == Opcode::LOOP || in.op == Opcode::ENDLOOP) { has_loop = true; break; }
+  if (!has_loop) return p;
+
+  Program out;
+  out.descriptors = p.descriptors;
+  out.init_data = p.init_data;
+
+  // Cache of per-(descriptor, iteration) address variants.
+  std::map<std::pair<int, int64_t>, int> variant;
+  auto variant_id = [&](int id, int64_t k) -> int {
+    const Descriptor& d = out.descriptors[id];
+    if (d.iter_stride == 0 || k == 0) return id;  // no advance for iter 0
+    auto key = std::make_pair(id, k);
+    auto it = variant.find(key);
+    if (it != variant.end()) return it->second;
+    Descriptor v = d;
+    v.base_addr += uint64_t(k * d.iter_stride) * dtype_size(d.dtype);
+    v.iter_stride = 0;
+    v.name = d.name + "#" + std::to_string(k);
+    int nid = int(out.descriptors.size());
+    out.descriptors.push_back(std::move(v));
+    variant[key] = nid;
+    return nid;
+  };
+
+  for (size_t i = 0; i < p.instrs.size();) {
+    if (p.instrs[i].op != Opcode::LOOP) {
+      if (p.instrs[i].op == Opcode::ENDLOOP)
+        throw std::runtime_error("ENDLOOP without matching LOOP");
+      out.instrs.push_back(p.instrs[i++]);
+      continue;
+    }
+    int64_t count = int64_t(p.instrs[i].imm(0, 1.0));
+    // Find the matching ENDLOOP (no nesting supported).
+    size_t j = i + 1;
+    for (; j < p.instrs.size(); ++j) {
+      if (p.instrs[j].op == Opcode::LOOP)
+        throw std::runtime_error("nested LOOP is not supported");
+      if (p.instrs[j].op == Opcode::ENDLOOP) break;
+    }
+    if (j >= p.instrs.size()) throw std::runtime_error("LOOP without matching ENDLOOP");
+
+    // Event id span so each iteration uses a disjoint event namespace.
+    int max_ev = -1;
+    for (size_t b = i + 1; b < j; ++b) {
+      max_ev = std::max(max_ev, p.instrs[b].wait_event);
+      max_ev = std::max(max_ev, p.instrs[b].signal_event);
+    }
+    int span = max_ev + 1;
+
+    for (int64_t k = 0; k < count; ++k) {
+      for (size_t b = i + 1; b < j; ++b) {
+        Instr ni = p.instrs[b];
+        for (auto& a : ni.args) a = variant_id(a, k);
+        if (ni.wait_event >= 0)   ni.wait_event += int(k) * span;
+        if (ni.signal_event >= 0) ni.signal_event += int(k) * span;
+        out.instrs.push_back(std::move(ni));
+      }
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
 // ----------------------------- binary I/O ----------------------------------
 
 template <class T> static void put(std::ostream& o, T v) {
@@ -214,7 +291,7 @@ static std::string get_str(std::istream& i) {
 void write_binary(const Program& p, const std::string& path) {
   std::ofstream o(path, std::ios::binary);
   if (!o) throw std::runtime_error("cannot write binary: " + path);
-  o.write("NPUB", 4); put<uint32_t>(o, 2u);
+  o.write("NPUB", 4); put<uint32_t>(o, 3u);
 
   put<uint32_t>(o, uint32_t(p.descriptors.size()));
   for (const auto& d : p.descriptors) {
@@ -226,6 +303,7 @@ void write_binary(const Program& p, const std::string& path) {
     for (auto x : d.dims) put<int64_t>(o, x);
     put<uint16_t>(o, uint16_t(d.strides.size()));
     for (auto x : d.strides) put<int64_t>(o, x);
+    put<int64_t>(o, d.iter_stride);
   }
 
   put<uint32_t>(o, uint32_t(p.instrs.size()));
@@ -254,7 +332,7 @@ Program read_binary(const std::string& path) {
   char magic[4]; in.read(magic, 4);
   if (std::memcmp(magic, "NPUB", 4) != 0) throw std::runtime_error("bad magic in " + path);
   uint32_t ver = get<uint32_t>(in);
-  if (ver != 2) throw std::runtime_error("unsupported .npubin version (expected 2)");
+  if (ver != 3) throw std::runtime_error("unsupported .npubin version (expected 3)");
 
   Program p;
   uint32_t nd = get<uint32_t>(in);
@@ -268,6 +346,7 @@ Program read_binary(const std::string& path) {
     for (uint16_t j = 0; j < r; ++j) d.dims.push_back(get<int64_t>(in));
     uint16_t ns = get<uint16_t>(in);
     for (uint16_t j = 0; j < ns; ++j) d.strides.push_back(get<int64_t>(in));
+    d.iter_stride = get<int64_t>(in);
     p.descriptors.push_back(std::move(d));
   }
   uint32_t ni = get<uint32_t>(in);

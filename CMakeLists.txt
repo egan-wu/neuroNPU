@@ -46,3 +46,7 @@ add_test(NAME sram_contention
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/matmul.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/sram_constrained.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME loop
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/loop.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)

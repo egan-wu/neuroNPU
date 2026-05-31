@@ -1,0 +1,24 @@
+# loop.npuasm — exercises LOOP control flow with per-iteration address advance.
+#
+# Process 3 tiles of 4 elements. InAll/OutAll cover all 3 tiles; In/Out are
+# 1-tile views that advance +4 elements per iteration (the `+4`). The loop body
+# (compact in the binary) is expanded 3x by the simulator.
+#
+# Input iota 0..11, RELU (identity for >=0). Output written tile-by-tile to
+# advancing addresses, so OutAll = 0..11. Expected dump OutAll[0..8] = 0..7.
+# (If the address did NOT advance, only one tile region would be written.)
+
+.desc InAll  ddr  f32 0x0000 3x4        # init region (all tiles)
+.desc OutAll ddr  f32 0x1000 3x4        # readback region
+.desc In     ddr  f32 0x0000 1x4 +4     # advancing input view
+.desc Out    ddr  f32 0x1000 1x4 +4     # advancing output view
+.desc tIn    sram f32 0x0000 1x4        # scratch (reused each iter)
+.desc tOut   sram f32 0x2000 1x4
+.data InAll iota
+
+LOOP $3
+  DMA.LOAD  tIn In        @sig 0
+  RELU      tOut tIn      @wait 0 @sig 1
+  DMA.STORE Out tOut      @wait 1
+ENDLOOP
+HALT

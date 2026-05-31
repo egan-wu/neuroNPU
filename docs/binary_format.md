@@ -1,4 +1,4 @@
-# NeuroNPU — `.npubin` Binary Format (v2)
+# NeuroNPU — `.npubin` Binary Format (v3)
 
 The stable, machine-emitted form of a program. All integers are **little-endian**.
 Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_binary`).
@@ -6,7 +6,7 @@ Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_bina
 ```
 Header
   char[4]   magic      = "NPUB"
-  u32       version    = 2
+  u32       version    = 3
 
 Descriptor table
   u32       num_descriptors
@@ -20,6 +20,7 @@ Descriptor table
     i64[rank]    dims
     u16     num_strides   (0 => row-major contiguous)
     i64[num_strides] strides   (elements)
+    i64     iter_stride   (elements advanced per LOOP iteration; 0 = fixed)
 
 Instruction stream
   u32       num_instructions
@@ -60,6 +61,8 @@ Init-data section
 | 12 | `REQUANT` |
 | 13 | `CONV` |
 | 14 | `ROPE` |
+| 15 | `LOOP` |
+| 16 | `ENDLOOP` |
 
 ## Argument conventions
 
@@ -75,5 +78,6 @@ Init-data section
 | `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |
 | `CONV`      | `[out, in, weight]`; imm `[stride, pad]` |
 | `ROPE`      | `[out, in]`; imm `[base, pos_offset]` |
+| `LOOP`      | no args; imm `[count]` (paired with `ENDLOOP`; expanded at load) |
 
 > Versioning: bump `version` on any layout change; the loader rejects unknown versions.

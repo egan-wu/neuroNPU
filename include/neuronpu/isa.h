@@ -34,6 +34,8 @@ enum class Opcode {
               //          imm0 = stride (default 1), imm1 = pad (default 0)
   ROPE,       // rotary position embedding on pairs along last dim
               //          imm0 = base (default 10000), imm1 = position offset (default 0)
+  LOOP,       // repeat the body up to the matching ENDLOOP imm0 times
+  ENDLOOP,    // close the nearest LOOP
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);
@@ -46,6 +48,7 @@ struct Descriptor {
   uint64_t             base_addr = 0;     // byte offset within its space
   std::vector<int64_t> dims;              // logical shape
   std::vector<int64_t> strides;           // element strides; empty => row-major
+  int64_t              iter_stride = 0;   // elements to advance base_addr per loop iter
 
   int64_t numel() const;
   int64_t bytes() const;
@@ -79,6 +82,11 @@ struct Program {
 // with a line number on syntax errors.
 Program assemble(const std::string& text);
 Program assemble_file(const std::string& path);
+
+// Expand LOOP..ENDLOOP into a flat instruction stream: the body is repeated
+// imm0 times, descriptors with iter_stride get per-iteration address variants,
+// and events are renamed per iteration. (No nesting in this version.)
+Program flatten_loops(const Program& p);
 
 // Binary container (.npubin) — the stable compiler<->simulator contract.
 void    write_binary(const Program& p, const std::string& path);
