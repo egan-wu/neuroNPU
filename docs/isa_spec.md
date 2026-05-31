@@ -37,7 +37,7 @@ need no event.
 | Engine | Opcodes |
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
-| `TENSOR` | `MATMUL` |
+| `TENSOR` | `MATMUL`, `CONV` |
 | `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT` |
 | (any)    | `NOP`, `HALT` |
 
@@ -48,6 +48,7 @@ need no event.
 | `DMA.LOAD`  | `DMA.LOAD dst_sram src_ddr` | copy `src` bytes DDR→SRAM |
 | `DMA.STORE` | `DMA.STORE dst_ddr src_sram` | copy `src` bytes SRAM→DDR |
 | `MATMUL`    | `MATMUL out a b [accum]` | `out[M,N] = a[M,K] @ b[K,N]`; `accum` adds into `out` |
+| `CONV`      | `CONV out in weight $stride $pad` | 2D conv, `in[Ci,H,W] * weight[Co,Ci,Kh,Kw] = out[Co,Ho,Wo]`, zero-pad; `stride` default 1, `pad` default 0 |
 | `VADD`      | `VADD out a b` | elementwise `out = a + b` |
 | `RELU`      | `RELU out in` | elementwise `out = max(0, in)` |
 | `GELU`      | `GELU out in` | elementwise GELU (tanh approximation) |
@@ -106,4 +107,4 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- Planned opcodes (not yet implemented): `CONV`, `ROPE`, `LOOP`.
+- Planned opcodes (not yet implemented): `ROPE`, `LOOP`.

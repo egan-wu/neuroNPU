@@ -1,0 +1,20 @@
+# conv.npuasm — exercises the Tensor Engine CONV.
+#
+# 1 input channel 4x4 (iota 0..15), one 3x3 all-ones filter, stride 1, pad 1.
+# Output is the 3x3 box-sum at each position. Expected O[0..8] (rows 0-1):
+#   10 18 24 18 27 45 54 39   (e.g. center O[1,1] = 0+1+2+4+5+6+8+9+10 = 45)
+
+.desc In  ddr  f32 0x0000 1x4x4
+.desc Wt  ddr  f32 0x1000 1x1x3x3
+.desc O   ddr  f32 0x2000 1x4x4
+.desc sIn sram f32 0x0000 1x4x4
+.desc sWt sram f32 0x4000 1x1x3x3
+.desc sO  sram f32 0x8000 1x4x4
+.data In iota
+.data Wt const 1
+
+DMA.LOAD  sIn In        @sig 0
+DMA.LOAD  sWt Wt        @sig 1
+CONV      sO sIn sWt $1 $1   @wait 1 @sig 2
+DMA.STORE O  sO         @wait 2
+HALT

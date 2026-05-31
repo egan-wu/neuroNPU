@@ -21,14 +21,14 @@ const char* opcode_name(Opcode o) {
     case Opcode::RELU: return "RELU";         case Opcode::GELU: return "GELU";
     case Opcode::SILU: return "SILU";         case Opcode::SOFTMAX: return "SOFTMAX";
     case Opcode::RMSNORM: return "RMSNORM";   case Opcode::LAYERNORM: return "LAYERNORM";
-    case Opcode::REQUANT: return "REQUANT";
+    case Opcode::REQUANT: return "REQUANT";   case Opcode::CONV: return "CONV";
   }
   return "?";
 }
 Engine opcode_engine(Opcode o) {
   switch (o) {
     case Opcode::DMA_LOAD: case Opcode::DMA_STORE: return Engine::DMA;
-    case Opcode::MATMUL:                           return Engine::TENSOR;
+    case Opcode::MATMUL:  case Opcode::CONV:       return Engine::TENSOR;
     case Opcode::VADD:    case Opcode::RELU:    case Opcode::GELU:
     case Opcode::SILU:    case Opcode::SOFTMAX: case Opcode::RMSNORM:
     case Opcode::LAYERNORM: case Opcode::REQUANT:  return Engine::VECTOR;
@@ -103,6 +103,7 @@ static Opcode parse_opcode(const std::string& s, bool& ok) {
   if (s == "RMSNORM") return Opcode::RMSNORM;
   if (s == "LAYERNORM") return Opcode::LAYERNORM;
   if (s == "REQUANT") return Opcode::REQUANT;
+  if (s == "CONV") return Opcode::CONV;
   ok = false; return Opcode::NOP;
 }
 

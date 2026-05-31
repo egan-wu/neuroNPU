@@ -30,6 +30,8 @@ enum class Opcode {
   RMSNORM,    // out = in / rms(in_row) * weight   (imm0 = eps)
   LAYERNORM,  // out = (in-mean)/std * weight + bias   (imm0 = eps)
   REQUANT,    // out = clamp(round(in/scale) + zp)   (imm0 = scale, imm1 = zp)
+  CONV,       // 2D conv: out[Cout,Ho,Wo] = in[Cin,H,W] * w[Cout,Cin,Kh,Kw]
+              //          imm0 = stride (default 1), imm1 = pad (default 0)
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);

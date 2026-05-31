@@ -58,6 +58,7 @@ Init-data section
 | 10 | `RMSNORM` |
 | 11 | `LAYERNORM` |
 | 12 | `REQUANT` |
+| 13 | `CONV` |
 
 ## Argument conventions
 
@@ -71,5 +72,6 @@ Init-data section
 | `RMSNORM`   | `[out, in, weight]`; imm `[eps]` |
 | `LAYERNORM` | `[out, in, weight, bias]`; imm `[eps]` |
 | `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |
+| `CONV`      | `[out, in, weight]`; imm `[stride, pad]` |
 
 > Versioning: bump `version` on any layout change; the loader rejects unknown versions.

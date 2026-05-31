@@ -30,3 +30,7 @@ add_test(NAME vector_ops
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/vector_ops.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME conv
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/conv.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)
