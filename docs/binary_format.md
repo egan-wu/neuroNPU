@@ -1,4 +1,4 @@
-# NeuroNPU — `.npubin` Binary Format (v1)
+# NeuroNPU — `.npubin` Binary Format (v2)
 
 The stable, machine-emitted form of a program. All integers are **little-endian**.
 Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_binary`).
@@ -6,7 +6,7 @@ Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_bina
 ```
 Header
   char[4]   magic      = "NPUB"
-  u32       version    = 1
+  u32       version    = 2
 
 Descriptor table
   u32       num_descriptors
@@ -30,6 +30,8 @@ Instruction stream
     i32     signal_event  (-1 = none)
     u16     num_args
     i32[num_args] args     (descriptor indices into the table above)
+    u16     num_imms
+    f64[num_imms] imms     (scalar immediates: eps, scale, zero-point, ...)
 
 Init-data section
   u32       num_entries
@@ -50,6 +52,12 @@ Init-data section
 | 4 | `MATMUL` |
 | 5 | `VADD` |
 | 6 | `RELU` |
+| 7 | `GELU` |
+| 8 | `SILU` |
+| 9 | `SOFTMAX` |
+| 10 | `RMSNORM` |
+| 11 | `LAYERNORM` |
+| 12 | `REQUANT` |
 
 ## Argument conventions
 
@@ -59,6 +67,9 @@ Init-data section
 | `DMA.STORE` | `[dst_ddr, src_sram]` |
 | `MATMUL`    | `[out, a, b]` |
 | `VADD`      | `[out, a, b]` |
-| `RELU`      | `[out, in]` |
+| `RELU` / `GELU` / `SILU` / `SOFTMAX` | `[out, in]` |
+| `RMSNORM`   | `[out, in, weight]`; imm `[eps]` |
+| `LAYERNORM` | `[out, in, weight, bias]`; imm `[eps]` |
+| `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |
 
 > Versioning: bump `version` on any layout change; the loader rejects unknown versions.

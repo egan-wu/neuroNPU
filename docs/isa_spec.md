@@ -38,7 +38,7 @@ need no event.
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL` |
-| `VECTOR` | `VADD`, `RELU` |
+| `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT` |
 | (any)    | `NOP`, `HALT` |
 
 ## Instruction reference
@@ -50,8 +50,18 @@ need no event.
 | `MATMUL`    | `MATMUL out a b [accum]` | `out[M,N] = a[M,K] @ b[K,N]`; `accum` adds into `out` |
 | `VADD`      | `VADD out a b` | elementwise `out = a + b` |
 | `RELU`      | `RELU out in` | elementwise `out = max(0, in)` |
+| `GELU`      | `GELU out in` | elementwise GELU (tanh approximation) |
+| `SILU`      | `SILU out in` | elementwise `out = in · sigmoid(in)` |
+| `SOFTMAX`   | `SOFTMAX out in` | softmax along the **last** dimension |
+| `RMSNORM`   | `RMSNORM out in weight $eps` | `out = in / rms(row) · weight`; `eps` default 1e-6 |
+| `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
+| `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
 | `NOP`       | `NOP` | nothing |
 | `HALT`      | `HALT` | end marker (0 cycles) |
+
+**Immediates.** Scalar operands are written with a `$` prefix (e.g. `$1e-5`, `$0.0078`).
+They are positional and follow the op's descriptor operands. (`#` and `;` start comments,
+so immediates must not use `#`.)
 
 Every instruction accepts optional trailing `@wait eN` and/or `@sig eN`.
 
@@ -96,5 +106,4 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- Planned opcodes (not yet implemented): `CONV`, `SOFTMAX`, `RMSNORM`/`LAYERNORM`,
-  `GELU`/`SiLU`, `REQUANT`, `ROPE`, `LOOP`.
+- Planned opcodes (not yet implemented): `CONV`, `ROPE`, `LOOP`.

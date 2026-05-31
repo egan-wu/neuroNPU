@@ -18,7 +18,10 @@ const char* opcode_name(Opcode o) {
     case Opcode::NOP: return "NOP";          case Opcode::HALT: return "HALT";
     case Opcode::DMA_LOAD: return "DMA.LOAD"; case Opcode::DMA_STORE: return "DMA.STORE";
     case Opcode::MATMUL: return "MATMUL";     case Opcode::VADD: return "VADD";
-    case Opcode::RELU: return "RELU";
+    case Opcode::RELU: return "RELU";         case Opcode::GELU: return "GELU";
+    case Opcode::SILU: return "SILU";         case Opcode::SOFTMAX: return "SOFTMAX";
+    case Opcode::RMSNORM: return "RMSNORM";   case Opcode::LAYERNORM: return "LAYERNORM";
+    case Opcode::REQUANT: return "REQUANT";
   }
   return "?";
 }
@@ -26,7 +29,9 @@ Engine opcode_engine(Opcode o) {
   switch (o) {
     case Opcode::DMA_LOAD: case Opcode::DMA_STORE: return Engine::DMA;
     case Opcode::MATMUL:                           return Engine::TENSOR;
-    case Opcode::VADD: case Opcode::RELU:          return Engine::VECTOR;
+    case Opcode::VADD:    case Opcode::RELU:    case Opcode::GELU:
+    case Opcode::SILU:    case Opcode::SOFTMAX: case Opcode::RMSNORM:
+    case Opcode::LAYERNORM: case Opcode::REQUANT:  return Engine::VECTOR;
     default:                                       return Engine::DMA;
   }
 }
@@ -92,6 +97,12 @@ static Opcode parse_opcode(const std::string& s, bool& ok) {
   if (s == "MATMUL") return Opcode::MATMUL;
   if (s == "VADD") return Opcode::VADD;
   if (s == "RELU") return Opcode::RELU;
+  if (s == "GELU") return Opcode::GELU;
+  if (s == "SILU") return Opcode::SILU;
+  if (s == "SOFTMAX") return Opcode::SOFTMAX;
+  if (s == "RMSNORM") return Opcode::RMSNORM;
+  if (s == "LAYERNORM") return Opcode::LAYERNORM;
+  if (s == "REQUANT") return Opcode::REQUANT;
   ok = false; return Opcode::NOP;
 }
 
@@ -164,6 +175,7 @@ Program assemble(const std::string& text) {
                           in.wait_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
       if (a == "@sig")  { if (++i >= tok.size()) err("@sig needs event");
                           in.signal_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
+      if (a[0] == '$')  { in.imms.push_back(std::stod(a.substr(1))); continue; }  // immediate
       int id = p.descriptor_id(a);
       if (id < 0) err("unknown descriptor '" + a + "'");
       in.args.push_back(id);
@@ -198,7 +210,7 @@ static std::string get_str(std::istream& i) {
 void write_binary(const Program& p, const std::string& path) {
   std::ofstream o(path, std::ios::binary);
   if (!o) throw std::runtime_error("cannot write binary: " + path);
-  o.write("NPUB", 4); put<uint32_t>(o, 1u);
+  o.write("NPUB", 4); put<uint32_t>(o, 2u);
 
   put<uint32_t>(o, uint32_t(p.descriptors.size()));
   for (const auto& d : p.descriptors) {
@@ -220,6 +232,8 @@ void write_binary(const Program& p, const std::string& path) {
     put<int32_t>(o, in.signal_event);
     put<uint16_t>(o, uint16_t(in.args.size()));
     for (auto a : in.args) put<int32_t>(o, a);
+    put<uint16_t>(o, uint16_t(in.imms.size()));
+    for (auto v : in.imms) put<double>(o, v);
   }
 
   put<uint32_t>(o, uint32_t(p.init_data.size()));
@@ -236,7 +250,7 @@ Program read_binary(const std::string& path) {
   char magic[4]; in.read(magic, 4);
   if (std::memcmp(magic, "NPUB", 4) != 0) throw std::runtime_error("bad magic in " + path);
   uint32_t ver = get<uint32_t>(in);
-  if (ver != 1) throw std::runtime_error("unsupported .npubin version");
+  if (ver != 2) throw std::runtime_error("unsupported .npubin version (expected 2)");
 
   Program p;
   uint32_t nd = get<uint32_t>(in);
@@ -261,6 +275,8 @@ Program read_binary(const std::string& path) {
     in2.signal_event = get<int32_t>(in);
     uint16_t na = get<uint16_t>(in);
     for (uint16_t j = 0; j < na; ++j) in2.args.push_back(get<int32_t>(in));
+    uint16_t nm = get<uint16_t>(in);
+    for (uint16_t j = 0; j < nm; ++j) in2.imms.push_back(get<double>(in));
     p.instrs.push_back(std::move(in2));
   }
   uint32_t nin = get<uint32_t>(in);

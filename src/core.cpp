@@ -1,6 +1,7 @@
 #include "neuronpu/core.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -30,8 +31,8 @@ double Core::matmul_cycles(int64_t M, int64_t N, int64_t K) const {
   return compute + fill;
 }
 
-double Core::vector_cycles(int64_t elems) const {
-  return double(elems) / std::max(1, cfg_.vector_lanes) + 8.0;  // + small fixed overhead
+double Core::vector_cycles(int64_t elems, double passes) const {
+  return double(elems) * passes / std::max(1, cfg_.vector_lanes) + 8.0;  // + fixed overhead
 }
 
 // ---- element access helpers ----
@@ -40,6 +41,14 @@ static float read_at(Memory& mem, const Descriptor& d, const std::vector<int64_t
 }
 static void write_at(Memory& mem, const Descriptor& d, const std::vector<int64_t>& idx, float v) {
   store_elem(mem.space(d.space).at(d.offset_bytes(idx)), d.dtype, v);
+}
+
+// Contiguous (row-major) flat access, used by vector-engine ops.
+static float read_flat(Memory& mem, const Descriptor& d, int64_t i) {
+  return load_elem(mem.space(d.space).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)), d.dtype);
+}
+static void write_flat(Memory& mem, const Descriptor& d, int64_t i, float v) {
+  store_elem(mem.space(d.space).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)), d.dtype, v);
 }
 
 void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
@@ -96,14 +105,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& A = prog_.descriptors[in.args.at(1)];
       const Descriptor& B = prog_.descriptors[in.args.at(2)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i) {
-        // flat elementwise over contiguous logical order
-        std::vector<int64_t> idx = {i};
-        const Descriptor o1{O.name, O.space, O.dtype, O.base_addr, {n}, {}};
-        const Descriptor a1{A.name, A.space, A.dtype, A.base_addr, {n}, {}};
-        const Descriptor b1{B.name, B.space, B.dtype, B.base_addr, {n}, {}};
-        write_at(mem_, o1, idx, read_at(mem_, a1, idx) + read_at(mem_, b1, idx));
-      }
+      for (int64_t i = 0; i < n; ++i)
+        write_flat(mem_, O, i, read_flat(mem_, A, i) + read_flat(mem_, B, i));
       rec.cycles = vector_cycles(n);
       return;
     }
@@ -113,12 +116,109 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
       for (int64_t i = 0; i < n; ++i) {
-        std::vector<int64_t> idx = {i};
-        const Descriptor o1{O.name, O.space, O.dtype, O.base_addr, {n}, {}};
-        const Descriptor i1{I.name, I.space, I.dtype, I.base_addr, {n}, {}};
-        float v = read_at(mem_, i1, idx);
-        write_at(mem_, o1, idx, v > 0.f ? v : 0.f);
+        float v = read_flat(mem_, I, i);
+        write_flat(mem_, O, i, v > 0.f ? v : 0.f);
       }
+      rec.cycles = vector_cycles(n);
+      return;
+    }
+
+    case Opcode::GELU: {
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int64_t n = O.numel();
+      const float k = 0.7978845608f;  // sqrt(2/pi)
+      for (int64_t i = 0; i < n; ++i) {
+        float x = read_flat(mem_, I, i);
+        float t = std::tanh(k * (x + 0.044715f * x * x * x));
+        write_flat(mem_, O, i, 0.5f * x * (1.f + t));
+      }
+      rec.cycles = vector_cycles(n, 4.0);
+      return;
+    }
+
+    case Opcode::SILU: {
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int64_t n = O.numel();
+      for (int64_t i = 0; i < n; ++i) {
+        float x = read_flat(mem_, I, i);
+        write_flat(mem_, O, i, x / (1.f + std::exp(-x)));
+      }
+      rec.cycles = vector_cycles(n, 4.0);
+      return;
+    }
+
+    case Opcode::SOFTMAX: {  // along last dim
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int64_t C = I.dims.back(), R = I.numel() / C;
+      for (int64_t r = 0; r < R; ++r) {
+        float mx = -std::numeric_limits<float>::infinity();
+        for (int64_t c = 0; c < C; ++c) mx = std::max(mx, read_flat(mem_, I, r * C + c));
+        float sum = 0.f;
+        for (int64_t c = 0; c < C; ++c) {
+          float e = std::exp(read_flat(mem_, I, r * C + c) - mx);
+          write_flat(mem_, O, r * C + c, e);
+          sum += e;
+        }
+        for (int64_t c = 0; c < C; ++c)
+          write_flat(mem_, O, r * C + c, read_flat(mem_, O, r * C + c) / sum);
+      }
+      rec.cycles = vector_cycles(I.numel(), 5.0);
+      return;
+    }
+
+    case Opcode::RMSNORM: {  // out = in / rms(row) * weight ; imm0 = eps
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      const Descriptor& W = prog_.descriptors[in.args.at(2)];
+      float eps = float(in.imm(0, 1e-6));
+      int64_t C = I.dims.back(), R = I.numel() / C;
+      for (int64_t r = 0; r < R; ++r) {
+        float ss = 0.f;
+        for (int64_t c = 0; c < C; ++c) { float x = read_flat(mem_, I, r * C + c); ss += x * x; }
+        float inv = 1.f / std::sqrt(ss / float(C) + eps);
+        for (int64_t c = 0; c < C; ++c)
+          write_flat(mem_, O, r * C + c, read_flat(mem_, I, r * C + c) * inv * read_flat(mem_, W, c));
+      }
+      rec.cycles = vector_cycles(I.numel(), 3.0);
+      return;
+    }
+
+    case Opcode::LAYERNORM: {  // out = (in-mean)/std * weight + bias ; imm0 = eps
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      const Descriptor& W = prog_.descriptors[in.args.at(2)];
+      const Descriptor& Bd = prog_.descriptors[in.args.at(3)];
+      float eps = float(in.imm(0, 1e-5));
+      int64_t C = I.dims.back(), R = I.numel() / C;
+      for (int64_t r = 0; r < R; ++r) {
+        float mean = 0.f;
+        for (int64_t c = 0; c < C; ++c) mean += read_flat(mem_, I, r * C + c);
+        mean /= float(C);
+        float var = 0.f;
+        for (int64_t c = 0; c < C; ++c) {
+          float d = read_flat(mem_, I, r * C + c) - mean; var += d * d;
+        }
+        float inv = 1.f / std::sqrt(var / float(C) + eps);
+        for (int64_t c = 0; c < C; ++c) {
+          float norm = (read_flat(mem_, I, r * C + c) - mean) * inv;
+          write_flat(mem_, O, r * C + c, norm * read_flat(mem_, W, c) + read_flat(mem_, Bd, c));
+        }
+      }
+      rec.cycles = vector_cycles(I.numel(), 4.0);
+      return;
+    }
+
+    case Opcode::REQUANT: {  // out = clamp(round(in/scale) + zp) ; imm0=scale, imm1=zp
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      float scale = float(in.imm(0, 1.0));
+      float zp = float(in.imm(1, 0.0));
+      int64_t n = O.numel();
+      for (int64_t i = 0; i < n; ++i)
+        write_flat(mem_, O, i, read_flat(mem_, I, i) / scale + zp);  // I8 store rounds+clamps
       rec.cycles = vector_cycles(n);
       return;
     }

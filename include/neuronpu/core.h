@@ -25,7 +25,7 @@ class Core {
   // Timing models (return duration in core-clock cycles).
   double dma_cycles(uint64_t bytes) const;
   double matmul_cycles(int64_t M, int64_t N, int64_t K) const;
-  double vector_cycles(int64_t elems) const;
+  double vector_cycles(int64_t elems, double passes = 1.0) const;
 
   // Functional execution of one instruction.
   void exec(const Instr& in, InstrRecord& rec, RunResult& out);

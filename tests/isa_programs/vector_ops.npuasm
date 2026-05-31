@@ -1,0 +1,15 @@
+# vector_ops.npuasm — exercises the Vector Engine.
+#
+# SOFTMAX over a single row of 8 elements (iota 0..7).  The result must sum to 1
+# and be monotonically increasing; Y[7] should dominate (~0.63).
+
+.desc X  ddr  f32 0x0000 1x8
+.desc Y  ddr  f32 0x1000 1x8
+.desc sX sram f32 0x0000 1x8
+.desc sY sram f32 0x1000 1x8
+.data X iota
+
+DMA.LOAD  sX X      @sig 0
+SOFTMAX   sY sX     @wait 0 @sig 1
+DMA.STORE Y  sY     @wait 1
+HALT

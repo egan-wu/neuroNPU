@@ -24,6 +24,12 @@ enum class Opcode {
   MATMUL,     // out[M,N] = a[M,K] @ b[K,N]   (+= if accumulate)
   VADD,       // out = a + b   (elementwise)
   RELU,       // out = max(0, in)
+  GELU,       // out = gelu(in)   (tanh approximation)
+  SILU,       // out = in * sigmoid(in)
+  SOFTMAX,    // out = softmax(in) along the last dimension
+  RMSNORM,    // out = in / rms(in_row) * weight   (imm0 = eps)
+  LAYERNORM,  // out = (in-mean)/std * weight + bias   (imm0 = eps)
+  REQUANT,    // out = clamp(round(in/scale) + zp)   (imm0 = scale, imm1 = zp)
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);
@@ -46,12 +52,14 @@ struct Descriptor {
 // One coarse-grained (CISC) instruction. Sync is expressed via optional
 // wait-before / signal-after event ids (cross-engine dependencies).
 struct Instr {
-  Opcode           op = Opcode::NOP;
-  std::vector<int> args;            // descriptor ids; meaning is per-opcode
-  bool             accumulate = false;
-  int              wait_event = -1; // issue blocks until this event is signaled
-  int              signal_event = -1; // signaled on completion
+  Opcode              op = Opcode::NOP;
+  std::vector<int>    args;            // descriptor ids; meaning is per-opcode
+  std::vector<double> imms;            // scalar immediates (eps, scale, ...)
+  bool                accumulate = false;
+  int                 wait_event = -1; // issue blocks until this event is signaled
+  int                 signal_event = -1; // signaled on completion
   Engine engine() const { return opcode_engine(op); }
+  double imm(size_t i, double dflt) const { return i < imms.size() ? imms[i] : dflt; }
 };
 
 struct Program {
