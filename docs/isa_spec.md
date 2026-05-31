@@ -115,17 +115,15 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- All coarse compute opcodes are implemented; remaining roadmap is energy modeling and
-  per-core (rather than shared) SRAM.
+- All coarse compute opcodes are implemented; remaining roadmap is energy modeling.
 
 ## Multi-core
 
 Set `num_cores > 1` (config) and tag instructions with `@core N`. Each core has its own
-TENSOR/VECTOR unit and its own `dma_channels`; cores run concurrently. **DDR and SRAM
-bandwidth are shared globally**, so cores contend for memory (the realistic effect). SRAM
-is currently one shared address space — the compiler partitions it across cores by
-address (per-core private SRAM is a future refinement). Use global events to synchronize
-across cores.
+TENSOR/VECTOR unit, its own `dma_channels`, and its own **private SRAM scratchpad** (a SRAM
+descriptor address refers to the executing core's bank). **DDR is shared globally** across
+cores (so they contend for DDR bandwidth); SRAM bandwidth contention is per core. Use
+global events to synchronize across cores.
 
 ## Loops
 

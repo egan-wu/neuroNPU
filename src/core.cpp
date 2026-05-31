@@ -11,11 +11,17 @@ namespace neuronpu {
 
 Core::Core(const Program& prog, const Config& cfg)
     : prog_(flatten_loops(prog)), cfg_(cfg),
-      mem_(cfg.ddr_size_mb * 1024ull * 1024ull, cfg.sram_size_kb * 1024ull) {
-  // Preload initial data into each descriptor's memory space.
+      mem_(cfg.ddr_size_mb * 1024ull * 1024ull, cfg.sram_size_kb * 1024ull,
+           std::max(1, cfg.num_cores)) {
+  // Preload initial data: DDR is shared; SRAM init is replicated to every core.
   for (const auto& kv : prog_.init_data) {
     const Descriptor& d = prog_.descriptors[kv.first];
-    mem_.space(d.space).write(d.base_addr, kv.second.data(), kv.second.size());
+    if (d.space == MemSpace::DDR) {
+      mem_.space(MemSpace::DDR, 0).write(d.base_addr, kv.second.data(), kv.second.size());
+    } else {
+      for (int c = 0; c < mem_.num_cores(); ++c)
+        mem_.space(MemSpace::SRAM, c).write(d.base_addr, kv.second.data(), kv.second.size());
+    }
   }
 }
 
@@ -30,20 +36,23 @@ double Core::vector_cycles(int64_t elems, double passes) const {
   return double(elems) * passes / std::max(1, cfg_.vector_lanes) + 8.0;  // + fixed overhead
 }
 
-// ---- element access helpers ----
-static float read_at(Memory& mem, const Descriptor& d, const std::vector<int64_t>& idx) {
-  return load_elem(mem.space(d.space).at(d.offset_bytes(idx)), d.dtype);
+// ---- element access helpers (SRAM is per-core; `core` selects the bank) ----
+static float read_at(Memory& mem, const Descriptor& d, int core, const std::vector<int64_t>& idx) {
+  return load_elem(mem.space(d.space, core).at(d.offset_bytes(idx)), d.dtype);
 }
-static void write_at(Memory& mem, const Descriptor& d, const std::vector<int64_t>& idx, float v) {
-  store_elem(mem.space(d.space).at(d.offset_bytes(idx)), d.dtype, v);
+static void write_at(Memory& mem, const Descriptor& d, int core,
+                     const std::vector<int64_t>& idx, float v) {
+  store_elem(mem.space(d.space, core).at(d.offset_bytes(idx)), d.dtype, v);
 }
 
 // Contiguous (row-major) flat access, used by vector-engine ops.
-static float read_flat(Memory& mem, const Descriptor& d, int64_t i) {
-  return load_elem(mem.space(d.space).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)), d.dtype);
+static float read_flat(Memory& mem, const Descriptor& d, int core, int64_t i) {
+  return load_elem(mem.space(d.space, core).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)),
+                   d.dtype);
 }
-static void write_flat(Memory& mem, const Descriptor& d, int64_t i, float v) {
-  store_elem(mem.space(d.space).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)), d.dtype, v);
+static void write_flat(Memory& mem, const Descriptor& d, int core, int64_t i, float v) {
+  store_elem(mem.space(d.space, core).at(d.base_addr + uint64_t(i) * dtype_size(d.dtype)),
+             d.dtype, v);
 }
 
 void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
@@ -62,8 +71,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& src = prog_.descriptors[in.args.at(1)];
       uint64_t n = uint64_t(src.bytes());
       std::vector<uint8_t> buf(n);
-      mem_.space(src.space).read(src.base_addr, buf.data(), n);
-      mem_.space(dst.space).write(dst.base_addr, buf.data(), n);
+      mem_.space(src.space, in.core).read(src.base_addr, buf.data(), n);
+      mem_.space(dst.space, in.core).write(dst.base_addr, buf.data(), n);
       rec.bytes = n;
       out.ddr_bytes += n;
       return;
@@ -78,10 +87,10 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
         throw std::runtime_error("MATMUL shape mismatch for output " + O.name);
       for (int64_t m = 0; m < M; ++m)
         for (int64_t n = 0; n < N; ++n) {
-          float acc = in.accumulate ? read_at(mem_, O, {m, n}) : 0.f;
+          float acc = in.accumulate ? read_at(mem_, O, in.core, {m, n}) : 0.f;
           for (int64_t k = 0; k < K; ++k)
-            acc += read_at(mem_, A, {m, k}) * read_at(mem_, B, {k, n});
-          write_at(mem_, O, {m, n}, acc);
+            acc += read_at(mem_, A, in.core, {m, k}) * read_at(mem_, B, in.core, {k, n});
+          write_at(mem_, O, in.core, {m, n}, acc);
         }
       rec.macs = double(M) * double(N) * double(K);
       rec.cycles = matmul_cycles(M, N, K);
@@ -95,7 +104,7 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& B = prog_.descriptors[in.args.at(2)];
       int64_t n = O.numel();
       for (int64_t i = 0; i < n; ++i)
-        write_flat(mem_, O, i, read_flat(mem_, A, i) + read_flat(mem_, B, i));
+        write_flat(mem_, O, in.core, i, read_flat(mem_, A, in.core, i) + read_flat(mem_, B, in.core, i));
       rec.cycles = vector_cycles(n);
       return;
     }
@@ -105,8 +114,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
       for (int64_t i = 0; i < n; ++i) {
-        float v = read_flat(mem_, I, i);
-        write_flat(mem_, O, i, v > 0.f ? v : 0.f);
+        float v = read_flat(mem_, I, in.core, i);
+        write_flat(mem_, O, in.core, i, v > 0.f ? v : 0.f);
       }
       rec.cycles = vector_cycles(n);
       return;
@@ -118,9 +127,9 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       int64_t n = O.numel();
       const float k = 0.7978845608f;  // sqrt(2/pi)
       for (int64_t i = 0; i < n; ++i) {
-        float x = read_flat(mem_, I, i);
+        float x = read_flat(mem_, I, in.core, i);
         float t = std::tanh(k * (x + 0.044715f * x * x * x));
-        write_flat(mem_, O, i, 0.5f * x * (1.f + t));
+        write_flat(mem_, O, in.core, i, 0.5f * x * (1.f + t));
       }
       rec.cycles = vector_cycles(n, 4.0);
       return;
@@ -131,8 +140,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
       for (int64_t i = 0; i < n; ++i) {
-        float x = read_flat(mem_, I, i);
-        write_flat(mem_, O, i, x / (1.f + std::exp(-x)));
+        float x = read_flat(mem_, I, in.core, i);
+        write_flat(mem_, O, in.core, i, x / (1.f + std::exp(-x)));
       }
       rec.cycles = vector_cycles(n, 4.0);
       return;
@@ -144,15 +153,15 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       int64_t C = I.dims.back(), R = I.numel() / C;
       for (int64_t r = 0; r < R; ++r) {
         float mx = -std::numeric_limits<float>::infinity();
-        for (int64_t c = 0; c < C; ++c) mx = std::max(mx, read_flat(mem_, I, r * C + c));
+        for (int64_t c = 0; c < C; ++c) mx = std::max(mx, read_flat(mem_, I, in.core, r * C + c));
         float sum = 0.f;
         for (int64_t c = 0; c < C; ++c) {
-          float e = std::exp(read_flat(mem_, I, r * C + c) - mx);
-          write_flat(mem_, O, r * C + c, e);
+          float e = std::exp(read_flat(mem_, I, in.core, r * C + c) - mx);
+          write_flat(mem_, O, in.core, r * C + c, e);
           sum += e;
         }
         for (int64_t c = 0; c < C; ++c)
-          write_flat(mem_, O, r * C + c, read_flat(mem_, O, r * C + c) / sum);
+          write_flat(mem_, O, in.core, r * C + c, read_flat(mem_, O, in.core, r * C + c) / sum);
       }
       rec.cycles = vector_cycles(I.numel(), 5.0);
       return;
@@ -166,10 +175,10 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       int64_t C = I.dims.back(), R = I.numel() / C;
       for (int64_t r = 0; r < R; ++r) {
         float ss = 0.f;
-        for (int64_t c = 0; c < C; ++c) { float x = read_flat(mem_, I, r * C + c); ss += x * x; }
+        for (int64_t c = 0; c < C; ++c) { float x = read_flat(mem_, I, in.core, r * C + c); ss += x * x; }
         float inv = 1.f / std::sqrt(ss / float(C) + eps);
         for (int64_t c = 0; c < C; ++c)
-          write_flat(mem_, O, r * C + c, read_flat(mem_, I, r * C + c) * inv * read_flat(mem_, W, c));
+          write_flat(mem_, O, in.core, r * C + c, read_flat(mem_, I, in.core, r * C + c) * inv * read_flat(mem_, W, in.core, c));
       }
       rec.cycles = vector_cycles(I.numel(), 3.0);
       return;
@@ -184,16 +193,16 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       int64_t C = I.dims.back(), R = I.numel() / C;
       for (int64_t r = 0; r < R; ++r) {
         float mean = 0.f;
-        for (int64_t c = 0; c < C; ++c) mean += read_flat(mem_, I, r * C + c);
+        for (int64_t c = 0; c < C; ++c) mean += read_flat(mem_, I, in.core, r * C + c);
         mean /= float(C);
         float var = 0.f;
         for (int64_t c = 0; c < C; ++c) {
-          float d = read_flat(mem_, I, r * C + c) - mean; var += d * d;
+          float d = read_flat(mem_, I, in.core, r * C + c) - mean; var += d * d;
         }
         float inv = 1.f / std::sqrt(var / float(C) + eps);
         for (int64_t c = 0; c < C; ++c) {
-          float norm = (read_flat(mem_, I, r * C + c) - mean) * inv;
-          write_flat(mem_, O, r * C + c, norm * read_flat(mem_, W, c) + read_flat(mem_, Bd, c));
+          float norm = (read_flat(mem_, I, in.core, r * C + c) - mean) * inv;
+          write_flat(mem_, O, in.core, r * C + c, norm * read_flat(mem_, W, in.core, c) + read_flat(mem_, Bd, in.core, c));
         }
       }
       rec.cycles = vector_cycles(I.numel(), 4.0);
@@ -222,11 +231,11 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
                 for (int64_t kw = 0; kw < Kw; ++kw) {
                   int64_t ih = oh * stride - pad + kh, iw = ow * stride - pad + kw;
                   if (ih < 0 || ih >= H || iw < 0 || iw >= Wd) continue;  // zero pad
-                  float x = read_flat(mem_, I, (ci * H + ih) * Wd + iw);
-                  float wv = read_flat(mem_, W, ((co * Ci + ci) * Kh + kh) * Kw + kw);
+                  float x = read_flat(mem_, I, in.core, (ci * H + ih) * Wd + iw);
+                  float wv = read_flat(mem_, W, in.core, ((co * Ci + ci) * Kh + kh) * Kw + kw);
                   acc += x * wv;
                 }
-            write_flat(mem_, O, (co * Ho + oh) * Wo + ow, acc);
+            write_flat(mem_, O, in.core, (co * Ho + oh) * Wo + ow, acc);
           }
       rec.macs = double(Co) * Ho * Wo * Ci * Kh * Kw;
       rec.cycles = rec.macs / cfg_.te_peak_macs_per_cycle() + double(cfg_.mac_rows + cfg_.mac_cols);
@@ -245,10 +254,10 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
         for (int64_t i = 0; i < D / 2; ++i) {
           double theta = double(pos) * std::pow(base, -double(2 * i) / double(D));
           float c = float(std::cos(theta)), sn = float(std::sin(theta));
-          float x0 = read_flat(mem_, I, s * D + 2 * i);
-          float x1 = read_flat(mem_, I, s * D + 2 * i + 1);
-          write_flat(mem_, O, s * D + 2 * i, x0 * c - x1 * sn);
-          write_flat(mem_, O, s * D + 2 * i + 1, x0 * sn + x1 * c);
+          float x0 = read_flat(mem_, I, in.core, s * D + 2 * i);
+          float x1 = read_flat(mem_, I, in.core, s * D + 2 * i + 1);
+          write_flat(mem_, O, in.core, s * D + 2 * i, x0 * c - x1 * sn);
+          write_flat(mem_, O, in.core, s * D + 2 * i + 1, x0 * sn + x1 * c);
         }
       }
       rec.cycles = vector_cycles(I.numel(), 6.0);
@@ -262,14 +271,14 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       float zp = float(in.imm(1, 0.0));
       int64_t n = O.numel();
       for (int64_t i = 0; i < n; ++i)
-        write_flat(mem_, O, i, read_flat(mem_, I, i) / scale + zp);  // I8 store rounds+clamps
+        write_flat(mem_, O, in.core, i, read_flat(mem_, I, in.core, i) / scale + zp);  // I8 store rounds+clamps
       rec.cycles = vector_cycles(n);
       return;
     }
   }
 }
 
-std::vector<float> Core::read_tensor(const std::string& name, int64_t max_elems) const {
+std::vector<float> Core::read_tensor(const std::string& name, int64_t max_elems, int core) const {
   int id = prog_.descriptor_id(name);
   if (id < 0) throw std::runtime_error("read_tensor: unknown descriptor " + name);
   const Descriptor& d = prog_.descriptors[id];
@@ -278,7 +287,7 @@ std::vector<float> Core::read_tensor(const std::string& name, int64_t max_elems)
   std::vector<float> v;
   v.reserve(n);
   for (int64_t i = 0; i < n; ++i)
-    v.push_back(load_elem(mem_.space(d.space).at(d.base_addr + uint64_t(i) * es), d.dtype));
+    v.push_back(load_elem(mem_.space(d.space, core).at(d.base_addr + uint64_t(i) * es), d.dtype));
   return v;
 }
 
@@ -400,24 +409,27 @@ RunResult Core::run() {
       if (r.is_dma && now >= r.data_start - EPS && r.bytes_remaining > EPS) ++transferring;
     double share = bytes_per_cycle / std::max(1, transferring);
 
-    // 2b) SRAM-port contention: every engine touching SRAM shares its aggregate
-    //     bandwidth. A DMA op's SRAM demand equals its DDR transfer rate; a compute
-    //     op's is its constant operand-bytes/cycle. If demand exceeds capacity,
-    //     all active ops are throttled by the same factor (first-order model).
-    double sram_demand = 0;
+    // 2b) SRAM-port contention is PER CORE (each core has private SRAM banks).
+    //     A DMA op's SRAM demand equals its DDR transfer rate; a compute op's is its
+    //     constant operand-bytes/cycle. If a core's demand exceeds its SRAM bandwidth,
+    //     that core's active ops are throttled by the same factor (first-order model).
+    std::vector<double> sram_demand(ncores, 0.0);
     for (auto& r : running) {
-      if (r.is_dma) { if (now >= r.data_start - EPS && r.bytes_remaining > EPS) sram_demand += share; }
-      else sram_demand += r.sram_demand;
+      if (r.is_dma) { if (now >= r.data_start - EPS && r.bytes_remaining > EPS) sram_demand[r.core] += share; }
+      else sram_demand[r.core] += r.sram_demand;
     }
-    double sram_factor = (sram_demand > sram_bw) ? sram_bw / sram_demand : 1.0;
+    std::vector<double> sram_factor(ncores, 1.0);
+    for (int c = 0; c < ncores; ++c)
+      if (sram_demand[c] > sram_bw) sram_factor[c] = sram_bw / sram_demand[c];
 
     // 3) Time to the next event (completion or a latency phase ending).
     double dt = std::numeric_limits<double>::max();
     for (auto& r : running) {
+      double sf = sram_factor[r.core];
       double t;
-      if (!r.is_dma)                         t = r.cycles_remaining / sram_factor;       // compute
-      else if (now < r.data_start - EPS)     t = r.data_start - now;                     // latency
-      else                                   t = r.bytes_remaining / (share * sram_factor); // xfer
+      if (!r.is_dma)                         t = r.cycles_remaining / sf;            // compute
+      else if (now < r.data_start - EPS)     t = r.data_start - now;                 // latency
+      else                                   t = r.bytes_remaining / (share * sf);   // transfer
       dt = std::min(dt, t);
     }
 
@@ -425,8 +437,9 @@ RunResult Core::run() {
     //    pre-advance time to classify each DMA op (latency vs transfer); event
     //    boundaries guarantee no op crosses its data_start mid-interval.
     for (auto& r : running) {
-      if (!r.is_dma) r.cycles_remaining -= sram_factor * dt;
-      else if (now >= r.data_start - EPS) r.bytes_remaining -= share * sram_factor * dt;
+      double sf = sram_factor[r.core];
+      if (!r.is_dma) r.cycles_remaining -= sf * dt;
+      else if (now >= r.data_start - EPS) r.bytes_remaining -= share * sf * dt;
     }
     now += dt;
 

@@ -1,5 +1,6 @@
 // NeuroNPU — flat byte-addressable memory spaces (DDR + SRAM scratchpad).
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -25,17 +26,24 @@ class MemSpaceStore {
   std::vector<uint8_t> bytes_;
 };
 
-// The two address spaces of the core.
+// Address spaces: one shared DDR plus a private SRAM scratchpad per core.
 class Memory {
  public:
-  Memory(uint64_t ddr_bytes, uint64_t sram_bytes) : ddr_(ddr_bytes), sram_(sram_bytes) {}
+  Memory(uint64_t ddr_bytes, uint64_t sram_bytes, int num_cores) : ddr_(ddr_bytes) {
+    for (int i = 0; i < std::max(1, num_cores); ++i) sram_.emplace_back(sram_bytes);
+  }
 
-  MemSpaceStore&       space(MemSpace s)       { return s == MemSpace::DDR ? ddr_ : sram_; }
-  const MemSpaceStore& space(MemSpace s) const { return s == MemSpace::DDR ? ddr_ : sram_; }
+  MemSpaceStore& space(MemSpace s, int core) {
+    return s == MemSpace::DDR ? ddr_ : sram_[core];
+  }
+  const MemSpaceStore& space(MemSpace s, int core) const {
+    return s == MemSpace::DDR ? ddr_ : sram_[core];
+  }
+  int num_cores() const { return int(sram_.size()); }
 
  private:
-  MemSpaceStore ddr_;
-  MemSpaceStore sram_;
+  MemSpaceStore              ddr_;
+  std::vector<MemSpaceStore> sram_;  // one per core
 };
 
 }  // namespace neuronpu

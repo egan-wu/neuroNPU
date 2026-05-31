@@ -18,8 +18,8 @@ class Core {
   RunResult run();
 
   // Read up to `max_elems` contiguous elements of a named tensor (post-run
-  // inspection / functional validation).
-  std::vector<float> read_tensor(const std::string& name, int64_t max_elems) const;
+  // inspection / functional validation). `core` selects the SRAM bank (DDR is shared).
+  std::vector<float> read_tensor(const std::string& name, int64_t max_elems, int core = 0) const;
 
  private:
   // Timing models (return duration in core-clock cycles). DMA timing is handled
