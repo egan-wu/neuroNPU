@@ -292,6 +292,7 @@ struct Running {
   double      bytes_remaining = 0;
   double      data_start = 0;    // DMA: time the latency phase ends
   bool        is_dma = false;
+  double      sram_demand = 0;   // compute ops: SRAM bytes/cycle at full rate
   InstrRecord rec;
 };
 }  // namespace
@@ -313,6 +314,7 @@ RunResult Core::run() {
   double now = 0;
 
   const double bytes_per_cycle = cfg_.ddr_peak_bytes_per_ns() / cfg_.core_clock_ghz;
+  const double sram_bw = cfg_.sram_bw_bytes_per_cycle();
   const double latency_cycles = cfg_.ddr_latency_ns * cfg_.core_clock_ghz;
   const int    dma_channels = std::max(1, cfg_.dma_channels);
   const double EPS = 1e-9;
@@ -345,6 +347,12 @@ RunResult Core::run() {
       r.data_start = now + latency_cycles;
     } else {
       r.cycles_remaining = r.rec.cycles;  // NOP/HALT have 0 cycles -> retire at once
+      // SRAM bandwidth this op wants at full rate: operand bytes touched / cycles.
+      if (r.rec.cycles > 0) {
+        double touched = 0;
+        for (int a : in.args) touched += double(prog_.descriptors[a].bytes());
+        r.sram_demand = touched / r.rec.cycles;
+      }
     }
     running.push_back(std::move(r));
   };
@@ -379,13 +387,24 @@ RunResult Core::run() {
       if (r.is_dma && now >= r.data_start - EPS && r.bytes_remaining > EPS) ++transferring;
     double share = bytes_per_cycle / std::max(1, transferring);
 
+    // 2b) SRAM-port contention: every engine touching SRAM shares its aggregate
+    //     bandwidth. A DMA op's SRAM demand equals its DDR transfer rate; a compute
+    //     op's is its constant operand-bytes/cycle. If demand exceeds capacity,
+    //     all active ops are throttled by the same factor (first-order model).
+    double sram_demand = 0;
+    for (auto& r : running) {
+      if (r.is_dma) { if (now >= r.data_start - EPS && r.bytes_remaining > EPS) sram_demand += share; }
+      else sram_demand += r.sram_demand;
+    }
+    double sram_factor = (sram_demand > sram_bw) ? sram_bw / sram_demand : 1.0;
+
     // 3) Time to the next event (completion or a latency phase ending).
     double dt = std::numeric_limits<double>::max();
     for (auto& r : running) {
       double t;
-      if (!r.is_dma)                         t = r.cycles_remaining;            // compute
-      else if (now < r.data_start - EPS)     t = r.data_start - now;            // latency
-      else                                   t = r.bytes_remaining / share;     // transfer
+      if (!r.is_dma)                         t = r.cycles_remaining / sram_factor;       // compute
+      else if (now < r.data_start - EPS)     t = r.data_start - now;                     // latency
+      else                                   t = r.bytes_remaining / (share * sram_factor); // xfer
       dt = std::min(dt, t);
     }
 
@@ -393,8 +412,8 @@ RunResult Core::run() {
     //    pre-advance time to classify each DMA op (latency vs transfer); event
     //    boundaries guarantee no op crosses its data_start mid-interval.
     for (auto& r : running) {
-      if (!r.is_dma) r.cycles_remaining -= dt;
-      else if (now >= r.data_start - EPS) r.bytes_remaining -= share * dt;
+      if (!r.is_dma) r.cycles_remaining -= sram_factor * dt;
+      else if (now >= r.data_start - EPS) r.bytes_remaining -= share * sram_factor * dt;
     }
     now += dt;
 

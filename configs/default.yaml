@@ -22,6 +22,7 @@ dma_channels: 1          # concurrent DMA transfers; >1 share DDR bandwidth fair
 # --- SRAM scratchpad (on-chip, software-managed) ---
 sram_size_kb: 4096
 sram_banks: 16
+sram_bank_width_bytes: 16   # bytes/cycle per bank; aggregate SRAM BW = banks x this
 
 # --- Features ---
 double_buffer: true      # overlap is expressed by the compiler via sync events

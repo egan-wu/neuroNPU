@@ -59,9 +59,15 @@ whenever the set of active transfers changes. So `dma_channels: 2` overlaps two 
 each runs at ~half bandwidth: faster than serial, but **not** 2×. This is the modeled
 DDR-contention effect.
 
+**SRAM port contention** is also modeled: every engine touching SRAM (DMA transfers and
+compute ops) draws on an aggregate SRAM bandwidth (`sram_banks × sram_bank_width_bytes`
+bytes/cycle). When total demand in an interval exceeds capacity, all active ops are
+throttled by the same factor (a first-order shared-port model). With the default config
+SRAM is provisioned above demand, so it only bites under heavy overlap or a starved config.
+
 **Functional results are exact** (fp32 accumulate) and fully decoupled from timing.
-The known approximation is that op-internal, per-cycle effects (bank conflicts, pipeline
-bubbles) are not modeled. SRAM port contention is not yet modeled (DDR bandwidth is).
+The known approximation is that op-internal, per-cycle effects (individual bank conflicts,
+pipeline bubbles) are not modeled.
 
 ## Logging & metrics
 
@@ -87,7 +93,7 @@ SRAM (size/banks), feature flags. Loaded at startup.
 
 1. ~~VE breadth: `SOFTMAX`, `RMSNORM`/`LAYERNORM`, `GELU`/`SiLU`, `REQUANT`, `ROPE`~~ ✅
 2. ~~`CONV`~~ ✅
-3. ~~Multi-DMA-channel + DDR contention~~ ✅ · remaining: SRAM port contention.
+3. ~~Multi-DMA-channel + DDR contention · SRAM port contention~~ ✅
 4. `LOOP`/control flow to keep multi-layer LLM binaries compact.
 5. Multi-core / multi-tile scaling.
 6. Optional energy/power estimation.

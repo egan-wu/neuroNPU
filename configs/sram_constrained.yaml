@@ -1,0 +1,13 @@
+# A deliberately SRAM-bandwidth-starved config to exercise SRAM port contention.
+# Aggregate SRAM BW = 2 banks x 16 B = 32 B/cycle, well below what MATMUL/DMA want,
+# so ops are throttled and the run stretches versus the default config.
+core_clock_ghz: 1.0
+mac_rows: 32
+mac_cols: 32
+ddr_freq_mhz: 3200
+ddr_width_bits: 64
+ddr_channels: 2
+ddr_latency_ns: 100
+dma_channels: 2
+sram_banks: 2
+sram_bank_width_bytes: 16
