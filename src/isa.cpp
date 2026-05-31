@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -206,9 +207,46 @@ Program assemble_file(const std::string& path) {
 }
 
 // ----------------------------- loop flattening -----------------------------
+//
+// Supports nested LOOPs. A `+N` descriptor's base advances additively: it gains
+// k*N elements for iteration k of EVERY enclosing loop it sits in. Each loop
+// iteration also gets a disjoint event namespace (sized to the body's needs so
+// nesting stays correct).
+
+namespace {
+
+// Index just past the ENDLOOP matching the LOOP at `lo` (handles nesting).
+size_t match_endloop(const std::vector<Instr>& s, size_t lo) {
+  int depth = 1;
+  for (size_t j = lo + 1; j < s.size(); ++j) {
+    if (s[j].op == Opcode::LOOP) ++depth;
+    else if (s[j].op == Opcode::ENDLOOP && --depth == 0) return j;
+  }
+  throw std::runtime_error("LOOP without matching ENDLOOP");
+}
+
+// Size of the event-id namespace used by instructions in [begin, end). A nested
+// loop consumes count * span(body); sequential siblings share the namespace.
+int event_span(const std::vector<Instr>& s, size_t begin, size_t end) {
+  int sp = 0;
+  for (size_t i = begin; i < end;) {
+    if (s[i].op == Opcode::LOOP) {
+      size_t j = match_endloop(s, i);
+      int count = int(s[i].imm(0, 1.0));
+      sp = std::max(sp, count * event_span(s, i + 1, j));
+      i = j + 1;
+    } else {
+      if (s[i].op == Opcode::ENDLOOP) throw std::runtime_error("ENDLOOP without matching LOOP");
+      sp = std::max(sp, std::max(s[i].wait_event, s[i].signal_event) + 1);
+      ++i;
+    }
+  }
+  return sp;
+}
+
+}  // namespace
 
 Program flatten_loops(const Program& p) {
-  // Fast path: nothing to do.
   bool has_loop = false;
   for (const auto& in : p.instrs)
     if (in.op == Opcode::LOOP || in.op == Opcode::ENDLOOP) { has_loop = true; break; }
@@ -218,60 +256,59 @@ Program flatten_loops(const Program& p) {
   out.descriptors = p.descriptors;
   out.init_data = p.init_data;
 
-  // Cache of per-(descriptor, iteration) address variants.
+  // Cache of (descriptor, total element offset) -> variant descriptor id.
   std::map<std::pair<int, int64_t>, int> variant;
-  auto variant_id = [&](int id, int64_t k) -> int {
-    const Descriptor& d = out.descriptors[id];
-    if (d.iter_stride == 0 || k == 0) return id;  // no advance for iter 0
-    auto key = std::make_pair(id, k);
+  auto variant_id = [&](int id, int64_t off_elems) -> int {
+    if (off_elems == 0) return id;
+    auto key = std::make_pair(id, off_elems);
     auto it = variant.find(key);
     if (it != variant.end()) return it->second;
-    Descriptor v = d;
-    v.base_addr += uint64_t(k * d.iter_stride) * dtype_size(d.dtype);
+    Descriptor v = out.descriptors[id];
+    v.base_addr += uint64_t(off_elems) * dtype_size(v.dtype);
     v.iter_stride = 0;
-    v.name = d.name + "#" + std::to_string(k);
+    v.name = out.descriptors[id].name + "@" + std::to_string(off_elems);
     int nid = int(out.descriptors.size());
     out.descriptors.push_back(std::move(v));
     variant[key] = nid;
     return nid;
   };
 
-  for (size_t i = 0; i < p.instrs.size();) {
-    if (p.instrs[i].op != Opcode::LOOP) {
-      if (p.instrs[i].op == Opcode::ENDLOOP)
-        throw std::runtime_error("ENDLOOP without matching LOOP");
-      out.instrs.push_back(p.instrs[i++]);
-      continue;
-    }
-    int64_t count = int64_t(p.instrs[i].imm(0, 1.0));
-    // Find the matching ENDLOOP (no nesting supported).
-    size_t j = i + 1;
-    for (; j < p.instrs.size(); ++j) {
-      if (p.instrs[j].op == Opcode::LOOP)
-        throw std::runtime_error("nested LOOP is not supported");
-      if (p.instrs[j].op == Opcode::ENDLOOP) break;
-    }
-    if (j >= p.instrs.size()) throw std::runtime_error("LOOP without matching ENDLOOP");
+  // Recursively expand [begin, end): `off` is the accumulated per-descriptor
+  // element offset from enclosing loops; `ev_base` shifts this scope's events.
+  std::function<void(size_t, size_t, const std::map<int, int64_t>&, int)> expand =
+      [&](size_t begin, size_t end, const std::map<int, int64_t>& off, int ev_base) {
+        for (size_t i = begin; i < end;) {
+          const Instr& cur = p.instrs[i];
+          if (cur.op == Opcode::LOOP) {
+            size_t j = match_endloop(p.instrs, i);
+            int count = int(cur.imm(0, 1.0));
+            int span = event_span(p.instrs, i + 1, j);
+            for (int k = 0; k < count; ++k) {
+              std::map<int, int64_t> child = off;
+              // Advance every descriptor that has an iteration stride.
+              for (int d = 0; d < int(out.descriptors.size()); ++d)
+                if (out.descriptors[d].iter_stride != 0)
+                  child[d] += int64_t(k) * out.descriptors[d].iter_stride;
+              expand(i + 1, j, child, ev_base + k * span);
+            }
+            i = j + 1;
+          } else {
+            if (cur.op == Opcode::ENDLOOP)
+              throw std::runtime_error("ENDLOOP without matching LOOP");
+            Instr ni = cur;
+            for (auto& a : ni.args) {
+              auto it = off.find(a);
+              a = variant_id(a, it == off.end() ? 0 : it->second);
+            }
+            if (ni.wait_event >= 0)   ni.wait_event += ev_base;
+            if (ni.signal_event >= 0) ni.signal_event += ev_base;
+            out.instrs.push_back(std::move(ni));
+            ++i;
+          }
+        }
+      };
 
-    // Event id span so each iteration uses a disjoint event namespace.
-    int max_ev = -1;
-    for (size_t b = i + 1; b < j; ++b) {
-      max_ev = std::max(max_ev, p.instrs[b].wait_event);
-      max_ev = std::max(max_ev, p.instrs[b].signal_event);
-    }
-    int span = max_ev + 1;
-
-    for (int64_t k = 0; k < count; ++k) {
-      for (size_t b = i + 1; b < j; ++b) {
-        Instr ni = p.instrs[b];
-        for (auto& a : ni.args) a = variant_id(a, k);
-        if (ni.wait_event >= 0)   ni.wait_event += int(k) * span;
-        if (ni.signal_event >= 0) ni.signal_event += int(k) * span;
-        out.instrs.push_back(std::move(ni));
-      }
-    }
-    i = j + 1;
-  }
+  expand(0, p.instrs.size(), {}, 0);
   return out;
 }
 

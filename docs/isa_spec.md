@@ -138,4 +138,11 @@ Per iteration `k`:
 
 Cross-iteration data dependencies (e.g. a residual buffer reused every layer) are the
 compiler's responsibility: keep producer/consumer on the same engine (implicit in-order)
-or reuse a fixed buffer (stride 0). Nesting is not supported yet (one loop level).
+or reuse a fixed buffer (stride 0).
+
+**Nesting is supported.** A `+N` descriptor advances **additively**: it gains `k·N`
+elements for iteration `k` of *every* enclosing loop it sits in (so for outer/inner loops
+the offset is `(k_outer + k_inner)·N`). Each iteration at each level also gets a disjoint
+event namespace. Because the stride is a single per-descriptor value, distinct strides per
+loop level aren't expressible with one descriptor — use separate descriptors per level if
+you need them.

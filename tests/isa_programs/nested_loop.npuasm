@@ -1,0 +1,22 @@
+# nested_loop.npuasm — exercises nested LOOPs and additive address advance.
+#
+# A 1-element constant (7) is stored through OutV, a view that advances +1
+# element per iteration of each enclosing loop (additive). With outer=2, inner=3
+# the written offsets are o+i for o in {0,1}, i in {0,1,2} = {0,1,2,3}, so
+# Out elements 0..3 become 7 and 4..7 stay 0.  Expected Out[0..8] = 7 7 7 7 0 0 0 0.
+# (Also proves the body ran 2x3 = 6 times.)  All ops are DMA, so the single
+# in-order DMA queue guarantees the load precedes the stores (no events needed).
+
+.desc Cst  ddr  f32 0x0000 1x1
+.desc Out  ddr  f32 0x1000 1x8        # readback region
+.desc OutV ddr  f32 0x1000 1x1 +1     # advancing 1-element view into Out
+.desc tCst sram f32 0x0000 1x1
+.data Cst const 7
+
+DMA.LOAD tCst Cst
+LOOP $2
+  LOOP $3
+    DMA.STORE OutV tCst
+  ENDLOOP
+ENDLOOP
+HALT

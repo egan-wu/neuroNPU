@@ -54,3 +54,7 @@ add_test(NAME multicore
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/multicore.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/dual_core.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME nested_loop
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/nested_loop.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)
