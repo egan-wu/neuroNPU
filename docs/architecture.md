@@ -85,7 +85,7 @@ SRAM (size/banks), feature flags. Loaded at startup.
 
 ## Roadmap (post-MVP)
 
-1. ~~VE breadth: `SOFTMAX`, `RMSNORM`/`LAYERNORM`, `GELU`/`SiLU`, `REQUANT`~~ ✅ · remaining: `ROPE`.
+1. ~~VE breadth: `SOFTMAX`, `RMSNORM`/`LAYERNORM`, `GELU`/`SiLU`, `REQUANT`, `ROPE`~~ ✅
 2. ~~`CONV`~~ ✅
 3. ~~Multi-DMA-channel + DDR contention~~ ✅ · remaining: SRAM port contention.
 4. `LOOP`/control flow to keep multi-layer LLM binaries compact.

@@ -59,6 +59,7 @@ Init-data section
 | 11 | `LAYERNORM` |
 | 12 | `REQUANT` |
 | 13 | `CONV` |
+| 14 | `ROPE` |
 
 ## Argument conventions
 
@@ -73,5 +74,6 @@ Init-data section
 | `LAYERNORM` | `[out, in, weight, bias]`; imm `[eps]` |
 | `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |
 | `CONV`      | `[out, in, weight]`; imm `[stride, pad]` |
+| `ROPE`      | `[out, in]`; imm `[base, pos_offset]` |
 
 > Versioning: bump `version` on any layout change; the loader rejects unknown versions.

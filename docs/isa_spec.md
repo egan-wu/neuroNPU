@@ -38,7 +38,7 @@ need no event.
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL`, `CONV` |
-| `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT` |
+| `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE` |
 | (any)    | `NOP`, `HALT` |
 
 ## Instruction reference
@@ -57,6 +57,7 @@ need no event.
 | `RMSNORM`   | `RMSNORM out in weight $eps` | `out = in / rms(row) · weight`; `eps` default 1e-6 |
 | `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
 | `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
+| `ROPE`      | `ROPE out in $base $pos_offset` | rotary embedding on pairs along the last dim; position = row + `pos_offset`; `base` default 10000 |
 | `NOP`       | `NOP` | nothing |
 | `HALT`      | `HALT` | end marker (0 cycles) |
 
@@ -107,4 +108,4 @@ runnable version (with the expected-output check).
   events to gate the consumer.
 - An instruction has **one** `@wait`. To depend on several producers, either chain them
   onto one engine (in-order) or have the last producer signal the event the consumer waits on.
-- Planned opcodes (not yet implemented): `ROPE`, `LOOP`.
+- Planned opcodes (not yet implemented): `LOOP`.

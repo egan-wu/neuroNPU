@@ -1,0 +1,18 @@
+# rope.npuasm — exercises rotary position embedding on the Vector Engine.
+#
+# 2 tokens x head_dim 4 (iota 0..7), base 10000, position = row index.
+#   row 0 (pos 0): cos=1,sin=0 -> identity -> 0 1 2 3
+#   row 1 (pos 1): pair0 theta=1 rad, pair1 theta=0.01 rad
+#     -> approx -2.046 6.068 5.930 7.060
+# Expected Y[0..8] ~= 0 1 2 3 -2.046 6.068 5.930 7.060
+
+.desc X  ddr  f32 0x0000 2x4
+.desc Y  ddr  f32 0x1000 2x4
+.desc sX sram f32 0x0000 2x4
+.desc sY sram f32 0x1000 2x4
+.data X iota
+
+DMA.LOAD  sX X      @sig 0
+ROPE      sY sX $10000 $0   @wait 0 @sig 1
+DMA.STORE Y  sY     @wait 1
+HALT

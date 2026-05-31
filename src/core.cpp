@@ -232,6 +232,27 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
+    case Opcode::ROPE: {  // rotate pairs along last dim ; imm0=base, imm1=pos offset
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      double base = in.imm(0, 10000.0);
+      int64_t offset = int64_t(in.imm(1, 0.0));
+      int64_t D = I.dims.back(), S = I.numel() / D;
+      for (int64_t s = 0; s < S; ++s) {
+        int64_t pos = s + offset;
+        for (int64_t i = 0; i < D / 2; ++i) {
+          double theta = double(pos) * std::pow(base, -double(2 * i) / double(D));
+          float c = float(std::cos(theta)), sn = float(std::sin(theta));
+          float x0 = read_flat(mem_, I, s * D + 2 * i);
+          float x1 = read_flat(mem_, I, s * D + 2 * i + 1);
+          write_flat(mem_, O, s * D + 2 * i, x0 * c - x1 * sn);
+          write_flat(mem_, O, s * D + 2 * i + 1, x0 * sn + x1 * c);
+        }
+      }
+      rec.cycles = vector_cycles(I.numel(), 6.0);
+      return;
+    }
+
     case Opcode::REQUANT: {  // out = clamp(round(in/scale) + zp) ; imm0=scale, imm1=zp
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
