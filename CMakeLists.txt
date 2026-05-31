@@ -62,3 +62,13 @@ add_test(NAME transformer_block
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/transformer_block.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+
+find_program(PYTHON3 python3)
+if(PYTHON3)
+  add_test(NAME llm_demo
+           COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
+                   --neuronpu $<TARGET_FILE:neuronpu>
+                   --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                   --outdir ${CMAKE_BINARY_DIR}/llm
+                   --layers 2 --d 32 --ffn 64 --prompt 16 --gen 4)
+endif()

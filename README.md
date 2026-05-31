@@ -43,6 +43,25 @@ The bundled `matmul.npuasm` computes `Y = A @ B` (A = iota, B = ones), so
 `--out`: `isa_trace.jsonl`, `ddr_trace.csv`, `perf.json`, and `trace.json` (drag into
 <https://ui.perfetto.dev> for the per-engine time sequence).
 
+## LLM demo (TTFT / TPS / roofline)
+
+[`tools/llm_demo.py`](tools/llm_demo.py) generates a small multi-layer transformer as
+NeuroNPU ISA, runs **prefill** (process the prompt) and **decode** (one token, weights
+streamed from DDR), and reports LLM-level metrics:
+
+```sh
+python3 tools/llm_demo.py --neuronpu build/neuronpu --config configs/default.yaml \
+    --layers 6 --d 64 --ffn 256 --prompt 128 --gen 64
+```
+
+It derives **TTFT** (= prefill time), **TPS** (= 1 / decode-step time), per-phase **MAC
+utilization**, **DDR bandwidth utilization**, **arithmetic intensity**, a roofline verdict,
+and **energy per token**. The characteristic result falls straight out of the model:
+prefill is **compute-bound**, decode is **memory-bound** (weights dominate per token).
+Absolute TPS scales with model size — point `--config` at your own DDR/clock numbers and
+grow `--layers/--d/--ffn` toward real dimensions. (`.npuasm`/`.npubin`/logs land in
+`--outdir`.)
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — engines, execution model, timing model.
