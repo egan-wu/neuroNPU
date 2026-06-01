@@ -42,7 +42,7 @@ need no event.
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL`, `CONV` |
-| `VECTOR` | `VADD`, `VSUB`, `VMUL`, `VMAX`, `RELU`, `GELU`, `SILU`, `SIGMOID`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE` |
+| `VECTOR` | `VADD`, `VSUB`, `VMUL`, `VMAX`, `RELU`, `GELU`, `SILU`, `SIGMOID`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE`, `GATHER` |
 | control  | `LOOP`, `ENDLOOP` (expanded at load) |
 | (any)    | `NOP`, `HALT` |
 
@@ -64,6 +64,7 @@ need no event.
 | `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
 | `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
 | `ROPE`      | `ROPE out in $base $pos_offset` | rotary embedding on pairs along the last dim; position = row + `pos_offset`; `base` default 10000 |
+| `GATHER`    | `GATHER out table $id0 $id1 ...` | embedding lookup: `out[n,:] = table[id_n,:]`; ids are immediates (known at compile time); table read counts as DDR traffic if the table is in DDR |
 | `LOOP`      | `LOOP $count` … `ENDLOOP` | repeat the body `count` times (see loops below) |
 | `ENDLOOP`   | `ENDLOOP` | close the nearest `LOOP` |
 | `NOP`       | `NOP` | nothing |

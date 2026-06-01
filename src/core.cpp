@@ -130,6 +130,24 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
+    case Opcode::GATHER: {  // out[n,:] = table[imm[n],:] ; embedding lookup
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& T = prog_.descriptors[in.args.at(1)];
+      int64_t D = T.dims.back();
+      int64_t N = int64_t(in.imms.size());
+      for (int64_t n = 0; n < N; ++n) {
+        int64_t id = int64_t(in.imms[n]);
+        for (int64_t d = 0; d < D; ++d)
+          write_flat(mem_, O, in.core, n * D + d, read_flat(mem_, T, in.core, id * D + d));
+      }
+      uint64_t moved = uint64_t(N * D) * dtype_size(T.dtype);
+      if (T.space == MemSpace::DDR) out.ddr_bytes += moved;  // table read from DDR
+      out.sram_bytes += moved;
+      rec.bytes = moved;
+      rec.cycles = vector_cycles(N * D);
+      return;
+    }
+
     case Opcode::RELU: {
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];

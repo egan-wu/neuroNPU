@@ -68,6 +68,7 @@ Init-data section
 | 18 | `VSUB` |
 | 19 | `VMAX` |
 | 20 | `SIGMOID` |
+| 21 | `GATHER` |
 
 ## Argument conventions
 
@@ -83,6 +84,7 @@ Init-data section
 | `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |
 | `CONV`      | `[out, in, weight]`; imm `[stride, pad]` |
 | `ROPE`      | `[out, in]`; imm `[base, pos_offset]` |
+| `GATHER`    | `[out, table]`; imm `[id0, id1, ...]` (one per gathered row) |
 | `LOOP`      | no args; imm `[count]` (paired with `ENDLOOP`; expanded at load) |
 
 > Versioning: bump `version` on any layout change; the loader rejects unknown versions.

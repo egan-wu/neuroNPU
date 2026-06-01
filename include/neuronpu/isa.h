@@ -41,6 +41,7 @@ enum class Opcode {
   VSUB,       // out = a - b   (elementwise)
   VMAX,       // out = max(a, b) (elementwise)
   SIGMOID,    // out = 1/(1+exp(-in))
+  GATHER,     // out[n] = table[imm[n]]  (embedding lookup; indices are immediates)
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);

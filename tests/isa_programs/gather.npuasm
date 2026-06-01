@@ -1,0 +1,13 @@
+# gather.npuasm — embedding lookup. Table[4,3] = iota (row i = [3i, 3i+1, 3i+2]).
+# Gather rows [2, 0, 3] (indices are immediates, known at compile time):
+#   out = table[2], table[0], table[3] = 6 7 8 / 0 1 2 / 9 10 11
+# Expected O[0..8] = 6 7 8 0 1 2 9 10 11
+
+.desc Tbl ddr  f32 0x0000 4x3       # embedding table (stays in DDR)
+.desc sO  sram f32 0x0000 3x3
+.desc O   ddr  f32 0x0100 3x3
+.data Tbl iota
+
+GATHER    sO Tbl $2 $0 $3   @sig 0
+DMA.STORE O sO             @wait 0
+HALT

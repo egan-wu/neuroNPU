@@ -70,6 +70,10 @@ add_test(NAME causal_softmax
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/causal_softmax.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME gather
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/gather.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs)
 
 find_program(PYTHON3 python3)
 if(PYTHON3)
