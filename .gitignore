@@ -1,5 +1,8 @@
 build/
 logs/
+models/
+__pycache__/
+*.npy
 *.npubin
 *.o
 *.a
