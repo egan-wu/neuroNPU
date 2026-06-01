@@ -5,7 +5,7 @@ import os, subprocess
 import numpy as np
 from .ir import Graph
 from .backend import compile_graph
-from . import reference
+from . import reference, passes
 
 
 def _save_npy(path, arr):
@@ -16,6 +16,7 @@ def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
                     workdir: str, timing_only=False, out_dir=None, opt=None):
     os.makedirs(workdir, exist_ok=True)
     out_dir = out_dir or os.path.join(workdir, "logs")
+    g = passes.apply(g, opt or {})                 # IR optimization passes (fusion, ...)
     text, ddr_data, in_descs, out_descs, stats = compile_graph(g, opt)
     asm_path = os.path.join(workdir, "model.npuasm")
     bin_path = os.path.join(workdir, "model.npubin")
@@ -52,9 +53,9 @@ def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
 
 
 def validate(g: Graph, inputs: dict, neuronpu: str, config: str, workdir: str,
-             rtol=2e-3, atol=2e-3):
+             rtol=2e-3, atol=2e-3, opt=None):
     ref = reference.execute(g, inputs)
-    got, perf = compile_and_run(g, inputs, neuronpu, config, workdir)
+    got, perf = compile_and_run(g, inputs, neuronpu, config, workdir, opt=opt)
     ok = True
     for o in g.outputs:
         r, x = ref[o], got[o]

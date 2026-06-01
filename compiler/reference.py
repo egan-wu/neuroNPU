@@ -60,6 +60,8 @@ def execute(g: Graph, inputs: dict) -> dict:
             r = a @ ins[1]
         elif k == "matmul_t":                       # a @ b^T
             r = a @ ins[1].T
+        elif k == "matmul_acc":                      # x + a @ W  (fused residual)
+            r = ins[0] + ins[1] @ ins[2]
         elif k == "rope":
             r = _rope(a, op.attrs.get("base", 10000.0), op.attrs.get("pos_offset", 0))
         elif k == "softmax":

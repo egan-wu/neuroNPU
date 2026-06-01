@@ -47,7 +47,8 @@ def main():
 
     def run(name, g):
         _, perf = compile_and_run(g, {}, a.neuronpu, a.config, a.workdir,
-                                  timing_only=True, out_dir=a.workdir + "/" + name)
+                                  timing_only=True, out_dir=a.workdir + "/" + name,
+                                  opt={"reuse": True, "fuse": True})
         print(_row(name, perf))
         return perf
 

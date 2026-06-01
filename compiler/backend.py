@@ -94,9 +94,10 @@ class Backend:
         for i, op in enumerate(self.g.ops):
             for inp in op.inputs:
                 lu[inp] = i
-        # a take_last output is a view of its input, so the input must outlive it
+        # take_last (view) and matmul_acc (in-place) alias their first input's
+        # buffer, so that input must live as long as the output.
         for op in self.g.ops:
-            if op.kind == "take_last":
+            if op.kind in ("take_last", "matmul_acc"):
                 src, dst = op.inputs[0], op.outputs[0]
                 lu[src] = max(lu.get(src, -1), lu.get(dst, -1))
         return lu
@@ -236,6 +237,25 @@ class Backend:
             self.decls.append(f".desc {v} sram f32 0x{addr + (rows-1)*D*F32:x} 1x{D}")
             self.sram_of[op.outputs[0]] = v
             self.ready[v] = self.ready.get(base, (None, "VECTOR"))
+            return
+
+        # matmul_acc: in-place residual y = x + a@W (MATMUL accum into x's buffer).
+        if op.kind == "matmul_acc":
+            x, a, W = op.inputs
+            xb = self._stage_or_act(x)                 # residual buffer (in-place out)
+            ab = self._stage_or_act(a)
+            wb = self._stage_or_act(W)
+            waits = []
+            for nm in (xb, ab, wb):                     # all producers (cross-engine)
+                r = self.ready.get(nm)
+                if r and r[0] is not None and r[1] != "TENSOR":
+                    waits.append(r[0])
+            ev = self._new_ev()
+            ann = (f" @wait {','.join(map(str, sorted(set(waits))))}" if waits else "") + f" @sig {ev}"
+            self.prog.append(f"MATMUL {xb} {ab} {wb} accum{ann}")
+            self.sram_of[op.outputs[0]] = xb
+            self.ready[xb] = (ev, "TENSOR")
+            self.op_sig[self.cur_i] = ev
             return
 
         eng = _engine(op.kind)
