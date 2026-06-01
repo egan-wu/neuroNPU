@@ -36,6 +36,10 @@ cmake --build build -j
 # compile text ISA to the binary contract, then run the binary
 ./build/neuronpu asm tests/isa_programs/matmul.npuasm build/matmul.npubin
 ./build/neuronpu run build/matmul.npubin --out build/logs
+
+# timing-only: skip functional compute, keep all timing/traffic/metrics
+# (lets very large models be profiled in milliseconds)
+./build/neuronpu run prog.npubin --out build/logs --timing-only
 ```
 
 The bundled `matmul.npuasm` computes `Y = A @ B` (A = iota, B = ones), so

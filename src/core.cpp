@@ -9,10 +9,12 @@
 
 namespace neuronpu {
 
-Core::Core(const Program& prog, const Config& cfg)
-    : prog_(flatten_loops(prog)), cfg_(cfg),
-      mem_(cfg.ddr_size_mb * 1024ull * 1024ull, cfg.sram_size_kb * 1024ull,
+Core::Core(const Program& prog, const Config& cfg, bool functional)
+    : prog_(flatten_loops(prog)), cfg_(cfg), functional_(functional),
+      mem_(functional ? cfg.ddr_size_mb * 1024ull * 1024ull : 0,
+           functional ? cfg.sram_size_kb * 1024ull : 0,
            std::max(1, cfg.num_cores)) {
+  if (!functional_) return;  // timing-only: no real memory, no preload
   // Preload initial data: DDR is shared; SRAM init is replicated to every core.
   for (const auto& kv : prog_.init_data) {
     const Descriptor& d = prog_.descriptors[kv.first];
@@ -70,9 +72,11 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& dst = prog_.descriptors[in.args.at(0)];
       const Descriptor& src = prog_.descriptors[in.args.at(1)];
       uint64_t n = uint64_t(src.bytes());
-      std::vector<uint8_t> buf(n);
-      mem_.space(src.space, in.core).read(src.base_addr, buf.data(), n);
-      mem_.space(dst.space, in.core).write(dst.base_addr, buf.data(), n);
+      if (functional_) {
+        std::vector<uint8_t> buf(n);
+        mem_.space(src.space, in.core).read(src.base_addr, buf.data(), n);
+        mem_.space(dst.space, in.core).write(dst.base_addr, buf.data(), n);
+      }
       rec.bytes = n;
       out.ddr_bytes += n;
       return;
@@ -85,13 +89,14 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       int64_t M = O.dims.at(0), N = O.dims.at(1), K = A.dims.at(1);
       if (A.dims.at(0) != M || B.dims.at(0) != K || B.dims.at(1) != N)
         throw std::runtime_error("MATMUL shape mismatch for output " + O.name);
-      for (int64_t m = 0; m < M; ++m)
-        for (int64_t n = 0; n < N; ++n) {
-          float acc = in.accumulate ? read_at(mem_, O, in.core, {m, n}) : 0.f;
-          for (int64_t k = 0; k < K; ++k)
-            acc += read_at(mem_, A, in.core, {m, k}) * read_at(mem_, B, in.core, {k, n});
-          write_at(mem_, O, in.core, {m, n}, acc);
-        }
+      if (functional_)
+        for (int64_t m = 0; m < M; ++m)
+          for (int64_t n = 0; n < N; ++n) {
+            float acc = in.accumulate ? read_at(mem_, O, in.core, {m, n}) : 0.f;
+            for (int64_t k = 0; k < K; ++k)
+              acc += read_at(mem_, A, in.core, {m, k}) * read_at(mem_, B, in.core, {k, n});
+            write_at(mem_, O, in.core, {m, n}, acc);
+          }
       rec.macs = double(M) * double(N) * double(K);
       rec.cycles = matmul_cycles(M, N, K);
       out.total_macs += rec.macs;
@@ -106,14 +111,15 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& A = prog_.descriptors[in.args.at(1)];
       const Descriptor& B = prog_.descriptors[in.args.at(2)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i) {
-        float a = read_flat(mem_, A, in.core, i), b = read_flat(mem_, B, in.core, i);
-        float r = in.op == Opcode::VADD ? a + b
-                : in.op == Opcode::VSUB ? a - b
-                : in.op == Opcode::VMUL ? a * b
-                                        : std::max(a, b);
-        write_flat(mem_, O, in.core, i, r);
-      }
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) {
+          float a = read_flat(mem_, A, in.core, i), b = read_flat(mem_, B, in.core, i);
+          float r = in.op == Opcode::VADD ? a + b
+                  : in.op == Opcode::VSUB ? a - b
+                  : in.op == Opcode::VMUL ? a * b
+                                          : std::max(a, b);
+          write_flat(mem_, O, in.core, i, r);
+        }
       rec.cycles = vector_cycles(n);
       return;
     }
@@ -122,10 +128,11 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i) {
-        float x = read_flat(mem_, I, in.core, i);
-        write_flat(mem_, O, in.core, i, 1.f / (1.f + std::exp(-x)));
-      }
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) {
+          float x = read_flat(mem_, I, in.core, i);
+          write_flat(mem_, O, in.core, i, 1.f / (1.f + std::exp(-x)));
+        }
       rec.cycles = vector_cycles(n, 4.0);
       return;
     }
@@ -135,11 +142,12 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& T = prog_.descriptors[in.args.at(1)];
       int64_t D = T.dims.back();
       int64_t N = int64_t(in.imms.size());
-      for (int64_t n = 0; n < N; ++n) {
-        int64_t id = int64_t(in.imms[n]);
-        for (int64_t d = 0; d < D; ++d)
-          write_flat(mem_, O, in.core, n * D + d, read_flat(mem_, T, in.core, id * D + d));
-      }
+      if (functional_)
+        for (int64_t n = 0; n < N; ++n) {
+          int64_t id = int64_t(in.imms[n]);
+          for (int64_t d = 0; d < D; ++d)
+            write_flat(mem_, O, in.core, n * D + d, read_flat(mem_, T, in.core, id * D + d));
+        }
       uint64_t moved = uint64_t(N * D) * dtype_size(T.dtype);
       if (T.space == MemSpace::DDR) out.ddr_bytes += moved;  // table read from DDR
       out.sram_bytes += moved;
@@ -152,10 +160,11 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i) {
-        float v = read_flat(mem_, I, in.core, i);
-        write_flat(mem_, O, in.core, i, v > 0.f ? v : 0.f);
-      }
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) {
+          float v = read_flat(mem_, I, in.core, i);
+          write_flat(mem_, O, in.core, i, v > 0.f ? v : 0.f);
+        }
       rec.cycles = vector_cycles(n);
       return;
     }
@@ -165,11 +174,12 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
       const float k = 0.7978845608f;  // sqrt(2/pi)
-      for (int64_t i = 0; i < n; ++i) {
-        float x = read_flat(mem_, I, in.core, i);
-        float t = std::tanh(k * (x + 0.044715f * x * x * x));
-        write_flat(mem_, O, in.core, i, 0.5f * x * (1.f + t));
-      }
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) {
+          float x = read_flat(mem_, I, in.core, i);
+          float t = std::tanh(k * (x + 0.044715f * x * x * x));
+          write_flat(mem_, O, in.core, i, 0.5f * x * (1.f + t));
+        }
       rec.cycles = vector_cycles(n, 4.0);
       return;
     }
@@ -178,10 +188,11 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i) {
-        float x = read_flat(mem_, I, in.core, i);
-        write_flat(mem_, O, in.core, i, x / (1.f + std::exp(-x)));
-      }
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) {
+          float x = read_flat(mem_, I, in.core, i);
+          write_flat(mem_, O, in.core, i, x / (1.f + std::exp(-x)));
+        }
       rec.cycles = vector_cycles(n, 4.0);
       return;
     }
@@ -194,7 +205,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       // query row r attends keys 0..(q_offset + r); default aligns the last R
       // queries to the end of the K range (prefill: q_offset=0; decode: C-1).
       int64_t q_offset = int64_t(in.imm(1, double(C - R)));
-      for (int64_t r = 0; r < R; ++r) {
+      if (functional_)
+       for (int64_t r = 0; r < R; ++r) {
         int64_t limit = causal ? std::min(C - 1, q_offset + r) : C - 1;
         float mx = -std::numeric_limits<float>::infinity();
         for (int64_t c = 0; c <= limit; ++c) mx = std::max(mx, read_flat(mem_, I, in.core, r * C + c));
@@ -217,7 +229,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& W = prog_.descriptors[in.args.at(2)];
       float eps = float(in.imm(0, 1e-6));
       int64_t C = I.dims.back(), R = I.numel() / C;
-      for (int64_t r = 0; r < R; ++r) {
+      if (functional_)
+       for (int64_t r = 0; r < R; ++r) {
         float ss = 0.f;
         for (int64_t c = 0; c < C; ++c) { float x = read_flat(mem_, I, in.core, r * C + c); ss += x * x; }
         float inv = 1.f / std::sqrt(ss / float(C) + eps);
@@ -235,7 +248,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& Bd = prog_.descriptors[in.args.at(3)];
       float eps = float(in.imm(0, 1e-5));
       int64_t C = I.dims.back(), R = I.numel() / C;
-      for (int64_t r = 0; r < R; ++r) {
+      if (functional_)
+       for (int64_t r = 0; r < R; ++r) {
         float mean = 0.f;
         for (int64_t c = 0; c < C; ++c) mean += read_flat(mem_, I, in.core, r * C + c);
         mean /= float(C);
@@ -266,7 +280,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
         throw std::runtime_error("CONV channel mismatch for output " + O.name);
       if (Ho != (H + 2 * pad - Kh) / stride + 1 || Wo != (Wd + 2 * pad - Kw) / stride + 1)
         throw std::runtime_error("CONV output shape mismatch for " + O.name);
-      for (int64_t co = 0; co < Co; ++co)
+      if (functional_)
+       for (int64_t co = 0; co < Co; ++co)
         for (int64_t oh = 0; oh < Ho; ++oh)
           for (int64_t ow = 0; ow < Wo; ++ow) {
             float acc = 0.f;
@@ -293,7 +308,8 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       double base = in.imm(0, 10000.0);
       int64_t offset = int64_t(in.imm(1, 0.0));
       int64_t D = I.dims.back(), S = I.numel() / D;
-      for (int64_t s = 0; s < S; ++s) {
+      if (functional_)
+       for (int64_t s = 0; s < S; ++s) {
         int64_t pos = s + offset;
         for (int64_t i = 0; i < D / 2; ++i) {
           double theta = double(pos) * std::pow(base, -double(2 * i) / double(D));
@@ -314,8 +330,9 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       float scale = float(in.imm(0, 1.0));
       float zp = float(in.imm(1, 0.0));
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i)
-        write_flat(mem_, O, in.core, i, read_flat(mem_, I, in.core, i) / scale + zp);  // I8 store rounds+clamps
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i)
+          write_flat(mem_, O, in.core, i, read_flat(mem_, I, in.core, i) / scale + zp);  // I8 rounds+clamps
       rec.cycles = vector_cycles(n);
       return;
     }

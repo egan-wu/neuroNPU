@@ -74,6 +74,10 @@ add_test(NAME gather
          COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/gather.npuasm
                  --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                  --out ${CMAKE_BINARY_DIR}/logs)
+add_test(NAME timing_only
+         COMMAND neuronpu run ${CMAKE_SOURCE_DIR}/tests/isa_programs/transformer_block.npuasm
+                 --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                 --out ${CMAKE_BINARY_DIR}/logs --timing-only)
 
 find_program(PYTHON3 python3)
 if(PYTHON3)

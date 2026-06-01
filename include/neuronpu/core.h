@@ -14,7 +14,9 @@ namespace neuronpu {
 // timing is cycle-approximate. The two are decoupled but produced in one pass.
 class Core {
  public:
-  Core(const Program& prog, const Config& cfg);
+  // functional=false => timing-only: skip numeric compute/data movement but still
+  // produce cycles/traffic/metrics (lets very large models be profiled quickly).
+  Core(const Program& prog, const Config& cfg, bool functional = true);
   RunResult run();
 
   // Read up to `max_elems` contiguous elements of a named tensor (post-run
@@ -32,6 +34,7 @@ class Core {
 
   Program        prog_;   // flattened (loops expanded) copy of the program
   const Config&  cfg_;
+  bool           functional_;
   Memory         mem_;
 };
 

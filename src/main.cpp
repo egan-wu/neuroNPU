@@ -31,26 +31,31 @@ static int cmd_run(int argc, char** argv) {
   std::string cfg_path = "configs/default.yaml";
   std::string out_dir = "logs";
   std::string dump_name;
+  bool timing_only = false;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--config") && i + 1 < argc) cfg_path = argv[++i];
     else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) out_dir = argv[++i];
     else if (!std::strcmp(argv[i], "--dump") && i + 1 < argc) dump_name = argv[++i];
+    else if (!std::strcmp(argv[i], "--timing-only")) timing_only = true;
   }
 
   Config cfg = fs::exists(cfg_path) ? Config::load(cfg_path) : Config{};
   cfg.dump();
+  if (timing_only) std::printf("  mode            : timing-only (no functional compute)\n");
 
   Program prog = load_program(prog_path);
   std::printf("\nLoaded %zu descriptors, %zu instructions from %s\n",
               prog.descriptors.size(), prog.instrs.size(), prog_path.c_str());
 
-  Core core(prog, cfg);
+  Core core(prog, cfg, /*functional=*/!timing_only);
   RunResult res = core.run();
 
   fs::create_directories(out_dir);
   Logger(out_dir).write(res);
 
-  if (!dump_name.empty()) {
+  if (!dump_name.empty() && timing_only) {
+    std::printf("\n(--dump ignored in --timing-only mode: no functional data)\n");
+  } else if (!dump_name.empty()) {
     auto vals = core.read_tensor(dump_name, 8);
     std::printf("\ndump %s[0..%zu]:", dump_name.c_str(), vals.size());
     for (float v : vals) std::printf(" %g", v);
