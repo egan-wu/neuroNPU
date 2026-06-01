@@ -339,6 +339,23 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
   }
 }
 
+int64_t Core::tensor_numel(const std::string& name) const {
+  int id = prog_.descriptor_id(name);
+  if (id < 0) throw std::runtime_error("tensor_numel: unknown descriptor " + name);
+  return prog_.descriptors[id].numel();
+}
+
+void Core::write_tensor(const std::string& name, const std::vector<float>& data, int core) {
+  if (!functional_) throw std::runtime_error("write_tensor needs functional mode");
+  int id = prog_.descriptor_id(name);
+  if (id < 0) throw std::runtime_error("write_tensor: unknown descriptor " + name);
+  const Descriptor& d = prog_.descriptors[id];
+  int64_t n = std::min<int64_t>(d.numel(), int64_t(data.size()));
+  size_t es = dtype_size(d.dtype);
+  for (int64_t i = 0; i < n; ++i)
+    store_elem(mem_.space(d.space, core).at(d.base_addr + uint64_t(i) * es), d.dtype, data[i]);
+}
+
 std::vector<float> Core::read_tensor(const std::string& name, int64_t max_elems, int core) const {
   int id = prog_.descriptor_id(name);
   if (id < 0) throw std::runtime_error("read_tensor: unknown descriptor " + name);

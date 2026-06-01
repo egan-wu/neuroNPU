@@ -40,6 +40,10 @@ cmake --build build -j
 # timing-only: skip functional compute, keep all timing/traffic/metrics
 # (lets very large models be profiled in milliseconds)
 ./build/neuronpu run prog.npubin --out build/logs --timing-only
+
+# golden comparison: inject input tensors and dump outputs as fp32 .npy
+./build/neuronpu run prog.npubin --out build/logs \
+    --load input=in.npy --save logits=out.npy
 ```
 
 The bundled `matmul.npuasm` computes `Y = A @ B` (A = iota, B = ones), so

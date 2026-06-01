@@ -23,6 +23,11 @@ class Core {
   // inspection / functional validation). `core` selects the SRAM bank (DDR is shared).
   std::vector<float> read_tensor(const std::string& name, int64_t max_elems, int core = 0) const;
 
+  // Write floats into a named tensor's memory (e.g. an input loaded from .npy).
+  void write_tensor(const std::string& name, const std::vector<float>& data, int core = 0);
+  // Logical element count of a named tensor (for sizing a full read/save).
+  int64_t tensor_numel(const std::string& name) const;
+
  private:
   // Timing models (return duration in core-clock cycles). DMA timing is handled
   // by the scheduler (fluid bandwidth sharing), not a fixed per-op formula.
