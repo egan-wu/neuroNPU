@@ -81,6 +81,12 @@ add_test(NAME timing_only
 
 find_program(PYTHON3 python3)
 if(PYTHON3)
+  add_test(NAME compiler_validate
+           COMMAND ${PYTHON3} -m compiler.validate
+                   --neuronpu $<TARGET_FILE:neuronpu>
+                   --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                   --workdir ${CMAKE_BINARY_DIR}/compiler
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llm_demo
            COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
                    --neuronpu $<TARGET_FILE:neuronpu>
