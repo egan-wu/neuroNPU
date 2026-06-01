@@ -1,0 +1,19 @@
+{
+  "total_cycles": 111883060.0,
+  "total_time_ns": 111883060.0,
+  "total_gmacs": 104.153,
+  "te_util": 0.909,
+  "dma_util": 0,
+  "ve_util": 0,
+  "ddr_achieved_gbps": 14.3872,
+  "ddr_peak_gbps": 51.2,
+  "ddr_bw_util": 0.281,
+  "arithmetic_intensity": 32.31,
+  "memory_bound": false,
+  "energy_total_nj": 907455622.0,
+  "energy_mac_nj": 4166120.0,
+  "energy_ddr_nj": 32205565.44,
+  "energy_sram_nj": 1666448.0,
+  "energy_static_nj": 5594153.0,
+  "avg_power_mw": 8110.7
+}

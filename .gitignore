@@ -5,3 +5,4 @@ logs/
 *.a
 .DS_Store
 compile_commands.json
+log/llama_1B_fp32/*.npubin

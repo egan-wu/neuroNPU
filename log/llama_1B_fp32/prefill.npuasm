@@ -1,0 +1,62 @@
+.desc dx   ddr f32 0x0 128x2048
+.desc dout ddr f32 0x100000 128x2048
+.desc dWall ddr f32 0x200000 805371904
+.desc dg1 ddr f32 0x200000 2048 +50335744
+.desc dg2 ddr f32 0x202000 2048 +50335744
+.desc dWq ddr f32 0x204000 2048x2048 +50335744
+.desc dWk ddr f32 0x1204000 2048x2048 +50335744
+.desc dWv ddr f32 0x2204000 2048x2048 +50335744
+.desc dWo ddr f32 0x3204000 2048x2048 +50335744
+.desc dW1 ddr f32 0x4204000 2048x8192 +50335744
+.desc dW2 ddr f32 0x8204000 8192x2048 +50335744
+.data dx rand 1
+.data dWall const 0.05
+.desc x      sram f32 0x0 128x2048
+.desc xn     sram f32 0x100000 128x2048
+.desc q      sram f32 0x200000 128x2048
+.desc kproj  sram f32 0x300000 128x2048
+.desc kT     sram f32 0x300000 2048x128 :1,2048
+.desc vproj  sram f32 0x400000 128x2048
+.desc v      sram f32 0x400000 128x2048
+.desc scores sram f32 0x500000 128x128
+.desc attn   sram f32 0x510000 128x2048
+.desc attno  sram f32 0x610000 128x2048
+.desc ffn1   sram f32 0x710000 128x8192
+.desc ffn2   sram f32 0xb10000 128x2048
+.desc g1 sram f32 0xc10000 2048
+.desc g2 sram f32 0xc12000 2048
+.desc Wq sram f32 0xc14000 2048x2048
+.desc Wk sram f32 0x1c14000 2048x2048
+.desc Wv sram f32 0x2c14000 2048x2048
+.desc Wo sram f32 0x3c14000 2048x2048
+.desc W1 sram f32 0x4c14000 2048x8192
+.desc W2 sram f32 0x8c14000 8192x2048
+DMA.LOAD x dx
+LOOP $16
+  DMA.LOAD g1 dg1
+  DMA.LOAD g2 dg2
+  DMA.LOAD Wq dWq
+  DMA.LOAD Wk dWk
+  DMA.LOAD Wv dWv
+  DMA.LOAD Wo dWo
+  DMA.LOAD W1 dW1
+  DMA.LOAD W2 dW2  @sig 0
+  RMSNORM xn x g1 $0.00001 @wait 0 @sig 1
+  MATMUL  q xn Wq @wait 1 @sig 2
+  MATMUL  kproj xn Wk @sig 3
+  MATMUL  vproj xn Wv @sig 4
+  ROPE    q q $10000 $0 @wait 2 @sig 5
+  ROPE    kproj kproj $10000 $0 @wait 3 @sig 6
+  MATMUL  scores q kT @wait 6 @sig 7
+  SOFTMAX scores scores @wait 7 @sig 8
+  MATMUL  attn scores v @wait 8 @sig 9
+  MATMUL  attno attn Wo @sig 10
+  VADD    x x attno @wait 10 @sig 11
+  RMSNORM xn x g2 $0.00001 @sig 12
+  MATMUL  ffn1 xn W1 @wait 12 @sig 13
+  SILU    ffn1 ffn1 @wait 13 @sig 14
+  MATMUL  ffn2 ffn1 W2 @wait 14 @sig 15
+  VADD    x x ffn2 @wait 15 @sig 16
+ENDLOOP
+DMA.STORE dout x
+HALT
