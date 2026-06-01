@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--layers", type=int, default=None, help="override num layers")
     ap.add_argument("--tile", action="store_true", help="tile big weights (realistic SRAM)")
     ap.add_argument("--tile-budget", type=int, default=512 * 512)
+    ap.add_argument("--nbuf", type=int, default=2, help="weight-tile buffers (double-buffer)")
     a = ap.parse_args()
 
     cfg = json.load(open(a.config_json))
@@ -47,7 +48,8 @@ def main():
     print(f"  {'phase':<13}{'time':>12}{'GMACs':>9}{'MACu':>9}{'DDRbw':>9}"
           f"{'DDR':>11}{'AI':>8}{'bound':>6}{'energy':>10}{'peakSRAM':>10}")
 
-    opt = {"reuse": True, "fuse": True, "tile": a.tile, "tile_budget": a.tile_budget}
+    opt = {"reuse": True, "fuse": True, "tile": a.tile,
+           "tile_budget": a.tile_budget, "nbuf": a.nbuf}
 
     def run(name, g):
         _, perf = compile_and_run(g, {}, a.neuronpu, a.config, a.workdir,

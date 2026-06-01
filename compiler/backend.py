@@ -327,30 +327,42 @@ class Backend:
         a_s = self._stage_or_act(a_name)
         # reusable tile descriptors (timing-only: addresses/data don't matter)
         uid = self.cur_i                              # unique per matmul op
+        nbuf = max(1, self.opt.get("nbuf", 2))        # weight-tile buffers (double-buffer)
         w_base = self._addr_of(w_ddr)
         wtd = self._name(w_ir, f"_wtd{uid}")          # tile-sized DDR source (tk*tn)
         self.decls.append(f".desc {wtd} ddr f32 0x{w_base:x} {tk}x{tn}")
-        wt_addr, wt_sz, _ = self.sram.alloc(tk * tn * F32)
-        wt = self._name(w_ir, f"_wt{uid}")
-        self.decls.append(f".desc {wt} sram f32 0x{wt_addr:x} {tk}x{tn}")
+        # ping-pong SRAM tile buffers so a tile loads while another computes
+        bufs = []
+        for b in range(nbuf):
+            addr, sz, _ = self.sram.alloc(tk * tn * F32)
+            nm = self._name(w_ir, f"_wt{uid}_{b}")
+            self.decls.append(f".desc {nm} sram f32 0x{addr:x} {tk}x{tn}")
+            bufs.append((nm, addr, sz))
         a_sl = self._name(a_name, f"_asl{uid}")
         self.decls.append(f".desc {a_sl} sram f32 0x{self._addr_of(a_s):x} {M}x{tk}")
         o_sl = self._name(out_asm, f"_osl{uid}")
         self.decls.append(f".desc {o_sl} sram f32 0x{self._addr_of(out_asm):x} {M}x{tn}")
         a_ev = self.ready.get(a_s, (None, None))
         a_wait = [a_ev[0]] if a_ev[0] is not None and a_ev[1] != "TENSOR" else []
-        last = None
+
+        buf_ev = [None] * nbuf    # last matmul event that read each buffer (WAR)
+        last, ti = None, 0
         for n0 in range(0, N, tn):
             for ki, k0 in enumerate(range(0, K, tk)):
+                nm = bufs[ti % nbuf][0]
+                war = buf_ev[ti % nbuf]               # reuse this buffer only after its reader
                 ev_w = self._new_ev()
-                self.prog.append(f"DMA.LOAD {wt} {wtd} @sig {ev_w}")
+                lw = f" @wait {war}" if war is not None else ""
+                self.prog.append(f"DMA.LOAD {nm} {wtd}{lw} @sig {ev_w}")
                 accum = " accum" if (init_accum or ki > 0) else ""
                 ev_m = self._new_ev()
                 waits = sorted(set(list(base_waits) + a_wait + [ev_w]))
-                self.prog.append(f"MATMUL {o_sl} {a_sl} {wt}{accum} "
+                self.prog.append(f"MATMUL {o_sl} {a_sl} {nm}{accum} "
                                  f"@wait {','.join(map(str, waits))} @sig {ev_m}")
-                last = ev_m
-        self.sram.release(wt_addr, wt_sz, last)
+                buf_ev[ti % nbuf] = ev_m
+                last, ti = ev_m, ti + 1
+        for (nm, addr, sz), ev in zip(bufs, buf_ev):
+            self.sram.release(addr, sz, ev)
         self.ready[out_asm] = (last, "TENSOR")
         self.op_sig[self.cur_i] = last
 
