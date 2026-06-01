@@ -243,23 +243,38 @@ class Backend:
         if op.kind == "matmul_acc":
             x, a, W = op.inputs
             xb = self._stage_or_act(x)                 # residual buffer (in-place out)
+            self.sram_of[op.outputs[0]] = xb
+            xr = self.ready.get(xb, (None, None))
+            xw = [xr[0]] if xr[0] is not None and xr[1] != "TENSOR" else []
+            M, Dout = self.g.tensors[x].shape[-2], self.g.tensors[x].shape[-1]
+            Kdim = self.g.tensors[a].shape[-1]
+            if self._should_tile(W):
+                self._tiled_matmul(xb, M, Dout, a, Kdim, W, True, xw)
+                return
             ab = self._stage_or_act(a)
             wb = self._stage_or_act(W)
-            waits = []
-            for nm in (xb, ab, wb):                     # all producers (cross-engine)
+            waits = list(xw)
+            for nm in (ab, wb):
                 r = self.ready.get(nm)
                 if r and r[0] is not None and r[1] != "TENSOR":
                     waits.append(r[0])
             ev = self._new_ev()
             ann = (f" @wait {','.join(map(str, sorted(set(waits))))}" if waits else "") + f" @sig {ev}"
             self.prog.append(f"MATMUL {xb} {ab} {wb} accum{ann}")
-            self.sram_of[op.outputs[0]] = xb
             self.ready[xb] = (ev, "TENSOR")
             self.op_sig[self.cur_i] = ev
             return
 
         eng = _engine(op.kind)
         out = self._activation(op.outputs[0])
+
+        # regular matmul with a large DDR weight -> tile it
+        if op.kind == "matmul" and self._should_tile(op.inputs[1]):
+            a, W = op.inputs
+            M, N = self.g.tensors[op.outputs[0]].shape[-2:]
+            Kdim = self.g.tensors[a].shape[-1]
+            self._tiled_matmul(out, M, N, a, Kdim, W, False, [])
+            return
 
         # output buffer may be a reused region -> wait for its previous reader (WAR)
         waits = []
@@ -294,6 +309,50 @@ class Backend:
         self.prog.append(f"{_MNEMONIC[op.kind]} {out} {' '.join(operands)}{imm}{ann}")
         self.ready[out] = (ev, eng)
         self.op_sig[self.cur_i] = ev
+
+    def _should_tile(self, w_ir):
+        t = self.g.tensors.get(w_ir)
+        return (self.opt.get("tile", False) and t is not None and t.is_weight
+                and t.numel > self.opt.get("tile_budget", 512 * 512))
+
+    def _tiled_matmul(self, out_asm, M, N, a_name, K, w_ir, init_accum, base_waits):
+        """Stream a large weight matmul in SRAM-sized tiles (N then K). Models the
+        same MACs and total weight DDR traffic as one big matmul, but peak SRAM is
+        one weight tile instead of the whole weight. (Timing/traffic-faithful;
+        used on the timing-only profiling path.)"""
+        budget = self.opt.get("tile_budget", 512 * 512)     # elems per weight tile
+        tn = min(N, budget)
+        tk = min(K, max(1, budget // tn))
+        w_ddr = self._decl_ddr(w_ir)
+        a_s = self._stage_or_act(a_name)
+        # reusable tile descriptors (timing-only: addresses/data don't matter)
+        uid = self.cur_i                              # unique per matmul op
+        w_base = self._addr_of(w_ddr)
+        wtd = self._name(w_ir, f"_wtd{uid}")          # tile-sized DDR source (tk*tn)
+        self.decls.append(f".desc {wtd} ddr f32 0x{w_base:x} {tk}x{tn}")
+        wt_addr, wt_sz, _ = self.sram.alloc(tk * tn * F32)
+        wt = self._name(w_ir, f"_wt{uid}")
+        self.decls.append(f".desc {wt} sram f32 0x{wt_addr:x} {tk}x{tn}")
+        a_sl = self._name(a_name, f"_asl{uid}")
+        self.decls.append(f".desc {a_sl} sram f32 0x{self._addr_of(a_s):x} {M}x{tk}")
+        o_sl = self._name(out_asm, f"_osl{uid}")
+        self.decls.append(f".desc {o_sl} sram f32 0x{self._addr_of(out_asm):x} {M}x{tn}")
+        a_ev = self.ready.get(a_s, (None, None))
+        a_wait = [a_ev[0]] if a_ev[0] is not None and a_ev[1] != "TENSOR" else []
+        last = None
+        for n0 in range(0, N, tn):
+            for ki, k0 in enumerate(range(0, K, tk)):
+                ev_w = self._new_ev()
+                self.prog.append(f"DMA.LOAD {wt} {wtd} @sig {ev_w}")
+                accum = " accum" if (init_accum or ki > 0) else ""
+                ev_m = self._new_ev()
+                waits = sorted(set(list(base_waits) + a_wait + [ev_w]))
+                self.prog.append(f"MATMUL {o_sl} {a_sl} {wt}{accum} "
+                                 f"@wait {','.join(map(str, waits))} @sig {ev_m}")
+                last = ev_m
+        self.sram.release(wt_addr, wt_sz, last)
+        self.ready[out_asm] = (last, "TENSOR")
+        self.op_sig[self.cur_i] = last
 
     def _imms(self, op):
         a = op.attrs
