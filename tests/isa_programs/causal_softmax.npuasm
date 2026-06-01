@@ -1,0 +1,19 @@
+# causal_softmax.npuasm — SOFTMAX with a causal mask ($1 = causal).
+#
+# scores = zeros[3,3]. Causal softmax (query r attends keys 0..r) gives a
+# lower-triangular uniform pattern:
+#   row0 -> 1   0    0
+#   row1 -> .5  .5   0
+#   row2 -> .33 .33  .33
+# Expected O[0..8] = 1 0 0 0.5 0.5 0 0.3333 0.3333 0.3333
+
+.desc X  ddr  f32 0x0000 3x3
+.desc O  ddr  f32 0x0100 3x3
+.desc sX sram f32 0x0000 3x3
+.desc sO sram f32 0x0100 3x3
+.data X const 0
+
+DMA.LOAD  sX X        @sig 0
+SOFTMAX   sO sX $1    @wait 0 @sig 1
+DMA.STORE O sO        @wait 1
+HALT

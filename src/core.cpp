@@ -168,16 +168,21 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
-    case Opcode::SOFTMAX: {  // along last dim
+    case Opcode::SOFTMAX: {  // along last dim; optional causal mask
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
       int64_t C = I.dims.back(), R = I.numel() / C;
+      bool causal = in.imm(0, 0.0) != 0.0;
+      // query row r attends keys 0..(q_offset + r); default aligns the last R
+      // queries to the end of the K range (prefill: q_offset=0; decode: C-1).
+      int64_t q_offset = int64_t(in.imm(1, double(C - R)));
       for (int64_t r = 0; r < R; ++r) {
+        int64_t limit = causal ? std::min(C - 1, q_offset + r) : C - 1;
         float mx = -std::numeric_limits<float>::infinity();
-        for (int64_t c = 0; c < C; ++c) mx = std::max(mx, read_flat(mem_, I, in.core, r * C + c));
+        for (int64_t c = 0; c <= limit; ++c) mx = std::max(mx, read_flat(mem_, I, in.core, r * C + c));
         float sum = 0.f;
         for (int64_t c = 0; c < C; ++c) {
-          float e = std::exp(read_flat(mem_, I, in.core, r * C + c) - mx);
+          float e = (c <= limit) ? std::exp(read_flat(mem_, I, in.core, r * C + c) - mx) : 0.f;
           write_flat(mem_, O, in.core, r * C + c, e);
           sum += e;
         }

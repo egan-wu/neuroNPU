@@ -59,7 +59,7 @@ need no event.
 | `SIGMOID`   | `SIGMOID out in` | elementwise `out = 1/(1+e^-in)` |
 | `GELU`      | `GELU out in` | elementwise GELU (tanh approximation) |
 | `SILU`      | `SILU out in` | elementwise `out = in · sigmoid(in)` |
-| `SOFTMAX`   | `SOFTMAX out in` | softmax along the **last** dimension |
+| `SOFTMAX`   | `SOFTMAX out in [$causal] [$q_offset]` | softmax along the **last** dim; `$causal=1` masks future keys (query row `r` attends keys `0..q_offset+r`; `q_offset` defaults to `kv_len - q_rows`) |
 | `RMSNORM`   | `RMSNORM out in weight $eps` | `out = in / rms(row) · weight`; `eps` default 1e-6 |
 | `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
 | `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
