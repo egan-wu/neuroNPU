@@ -80,6 +80,8 @@ def execute(g: Graph, inputs: dict) -> dict:
             r = a[np.asarray(op.attrs["ids"], dtype=np.int64)]
         elif k == "scale":
             r = a * op.attrs["factor"]
+        elif k == "take_last":                      # last row -> [1, D]
+            r = a[-1:, :]
         else:
             raise ValueError(f"reference: unknown op kind {k}")
         vals[op.outputs[0]] = np.asarray(r, dtype=np.float32)

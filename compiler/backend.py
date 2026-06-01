@@ -76,7 +76,7 @@ class Backend:
         addr = self.ddr.alloc(t.numel * F32)
         self.decls.append(f".desc {asm} ddr f32 0x{addr:x} {self._dims(t.shape)}")
         self.ddr_addr[ir_name] = (asm, addr)
-        if t.is_weight:
+        if t.data is not None:                       # value present (functional)
             self.ddr_data[asm] = t.data.astype(np.float32)
         return asm
 
@@ -150,6 +150,18 @@ class Backend:
         return text
 
     def _lower(self, op):
+        # take_last: a zero-cost view of the input's last row (no instruction).
+        if op.kind == "take_last":
+            base = self._stage_or_act(op.inputs[0])
+            addr = self._addr_of(base)
+            t = self.g.tensors[op.inputs[0]]
+            rows, D = int(t.shape[-2]), int(t.shape[-1])
+            v = self._name(op.outputs[0])
+            self.decls.append(f".desc {v} sram f32 0x{addr + (rows-1)*D*F32:x} 1x{D}")
+            self.sram_of[op.outputs[0]] = v
+            self.ready[v] = self.ready.get(base, (None, "VECTOR"))
+            return
+
         eng = _engine(op.kind)
         out = self._activation(op.outputs[0])
 

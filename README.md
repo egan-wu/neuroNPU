@@ -70,6 +70,36 @@ Absolute TPS scales with model size — point `--config` at your own DDR/clock n
 grow `--layers/--d/--ffn` toward real dimensions. (`.npuasm`/`.npubin`/logs land in
 `--outdir`.)
 
+## Offline compiler (ONNX/Llama → ISA → profile)
+
+The `compiler/` package lowers a coarse Graph IR to NeuroNPU ISA (bufferization,
+DMA weight staging, cross-engine event scheduling, codegen) and is validated
+bit-exact against a numpy reference:
+
+```sh
+python3 -m compiler.validate          # tiny Llama layer: compile, run, diff vs numpy
+```
+
+It profiles a **real Llama** from its `config.json` (architecture-driven frontend:
+real dims/layer count → real-scale IR → ISA → timing-only profile):
+
+```sh
+# download just the 0.5 MB graph/config (weights not needed for timing)
+python3 - <<'PY'
+from huggingface_hub import hf_hub_download; import shutil,os
+os.makedirs("models/llama32_1b",exist_ok=True)
+for f in ["onnx/model.onnx","config.json"]:
+    shutil.copy(hf_hub_download("onnx-community/Llama-3.2-1B",f),
+                "models/llama32_1b/"+os.path.basename(f))
+PY
+python3 -m compiler.profile_llama --config-json models/llama32_1b/config.json
+```
+
+reporting per-phase MAC/DDR utilization, roofline, energy, **TTFT**, and a
+**TPS-vs-context** curve. Llama-3.2-1B FP32 on the default config comes out
+prefill **compute-bound** (~93% MAC util) and decode **memory-bound** (~5.4 GB
+weights streamed per token), exactly as expected.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — engines, execution model, timing model.

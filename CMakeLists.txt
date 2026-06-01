@@ -87,6 +87,13 @@ if(PYTHON3)
                    --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                    --workdir ${CMAKE_BINARY_DIR}/compiler
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME llama_profile
+           COMMAND ${PYTHON3} -m compiler.profile_llama
+                   --config-json ${CMAKE_SOURCE_DIR}/tests/llama_tiny_config.json
+                   --neuronpu $<TARGET_FILE:neuronpu>
+                   --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                   --workdir ${CMAKE_BINARY_DIR}/llama --prompt 16 --gen 4 --kv 16 64
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llm_demo
            COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
                    --neuronpu $<TARGET_FILE:neuronpu>

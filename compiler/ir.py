@@ -14,13 +14,14 @@ import numpy as np
 class Tensor:
     name: str
     shape: tuple
-    data: Optional[np.ndarray] = None   # set => constant/weight (resides in DDR)
+    data: Optional[np.ndarray] = None   # set => constant/weight value present
     is_input: bool = False              # runtime input (loaded via --load)
     is_output: bool = False
+    is_param: bool = False              # DDR-resident weight with no data (timing-only)
 
     @property
     def is_weight(self) -> bool:
-        return self.data is not None
+        return self.data is not None or self.is_param
 
     @property
     def numel(self) -> int:
@@ -48,8 +49,9 @@ class Graph:
     outputs: list = field(default_factory=list)   # output tensor names
 
     # ---- construction helpers ----
-    def tensor(self, name, shape, data=None, is_input=False, is_output=False) -> str:
-        t = Tensor(name, tuple(int(s) for s in shape), data, is_input, is_output)
+    def tensor(self, name, shape, data=None, is_input=False, is_output=False,
+               is_param=False) -> str:
+        t = Tensor(name, tuple(int(s) for s in shape), data, is_input, is_output, is_param)
         self.tensors[name] = t
         if is_input and name not in self.inputs:
             self.inputs.append(name)
