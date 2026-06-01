@@ -42,7 +42,7 @@ need no event.
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL`, `CONV` |
-| `VECTOR` | `VADD`, `RELU`, `GELU`, `SILU`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE` |
+| `VECTOR` | `VADD`, `VSUB`, `VMUL`, `VMAX`, `RELU`, `GELU`, `SILU`, `SIGMOID`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE` |
 | control  | `LOOP`, `ENDLOOP` (expanded at load) |
 | (any)    | `NOP`, `HALT` |
 
@@ -54,8 +54,9 @@ need no event.
 | `DMA.STORE` | `DMA.STORE dst_ddr src_sram` | copy `src` bytes SRAM→DDR |
 | `MATMUL`    | `MATMUL out a b [accum]` | `out[M,N] = a[M,K] @ b[K,N]`; `accum` adds into `out` |
 | `CONV`      | `CONV out in weight $stride $pad` | 2D conv, `in[Ci,H,W] * weight[Co,Ci,Kh,Kw] = out[Co,Ho,Wo]`, zero-pad; `stride` default 1, `pad` default 0 |
-| `VADD`      | `VADD out a b` | elementwise `out = a + b` |
+| `VADD`/`VSUB`/`VMUL`/`VMAX` | `OP out a b` | elementwise `a+b` / `a-b` / `a*b` / `max(a,b)` (`VMUL` is SwiGLU gating) |
 | `RELU`      | `RELU out in` | elementwise `out = max(0, in)` |
+| `SIGMOID`   | `SIGMOID out in` | elementwise `out = 1/(1+e^-in)` |
 | `GELU`      | `GELU out in` | elementwise GELU (tanh approximation) |
 | `SILU`      | `SILU out in` | elementwise `out = in · sigmoid(in)` |
 | `SOFTMAX`   | `SOFTMAX out in` | softmax along the **last** dimension |

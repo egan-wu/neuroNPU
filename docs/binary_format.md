@@ -64,6 +64,10 @@ Init-data section
 | 14 | `ROPE` |
 | 15 | `LOOP` |
 | 16 | `ENDLOOP` |
+| 17 | `VMUL` |
+| 18 | `VSUB` |
+| 19 | `VMAX` |
+| 20 | `SIGMOID` |
 
 ## Argument conventions
 
@@ -72,8 +76,8 @@ Init-data section
 | `DMA.LOAD`  | `[dst_sram, src_ddr]` |
 | `DMA.STORE` | `[dst_ddr, src_sram]` |
 | `MATMUL`    | `[out, a, b]` |
-| `VADD`      | `[out, a, b]` |
-| `RELU` / `GELU` / `SILU` / `SOFTMAX` | `[out, in]` |
+| `VADD` / `VSUB` / `VMUL` / `VMAX` | `[out, a, b]` |
+| `RELU` / `GELU` / `SILU` / `SIGMOID` / `SOFTMAX` | `[out, in]` |
 | `RMSNORM`   | `[out, in, weight]`; imm `[eps]` |
 | `LAYERNORM` | `[out, in, weight, bias]`; imm `[eps]` |
 | `REQUANT`   | `[out, in]`; imm `[scale, zero_point]` |

@@ -1,0 +1,18 @@
+# elementwise.npuasm — exercises the new binary elementwise ops (SwiGLU needs VMUL).
+#
+# X = iota (0..7), Y = const 2.  O = X * Y = 0 2 4 6 8 10 12 14.
+
+.desc X  ddr  f32 0x0000 1x8
+.desc Y  ddr  f32 0x0100 1x8
+.desc O  ddr  f32 0x0200 1x8
+.desc sX sram f32 0x0000 1x8
+.desc sY sram f32 0x0100 1x8
+.desc sO sram f32 0x0200 1x8
+.data X iota
+.data Y const 2
+
+DMA.LOAD  sX X      @sig 0
+DMA.LOAD  sY Y      @sig 1
+VMUL      sO sX sY  @wait 1 @sig 2
+DMA.STORE O sO      @wait 2
+HALT

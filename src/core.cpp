@@ -98,14 +98,35 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
-    case Opcode::VADD: {
+    case Opcode::VADD:
+    case Opcode::VSUB:
+    case Opcode::VMUL:
+    case Opcode::VMAX: {  // binary elementwise
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& A = prog_.descriptors[in.args.at(1)];
       const Descriptor& B = prog_.descriptors[in.args.at(2)];
       int64_t n = O.numel();
-      for (int64_t i = 0; i < n; ++i)
-        write_flat(mem_, O, in.core, i, read_flat(mem_, A, in.core, i) + read_flat(mem_, B, in.core, i));
+      for (int64_t i = 0; i < n; ++i) {
+        float a = read_flat(mem_, A, in.core, i), b = read_flat(mem_, B, in.core, i);
+        float r = in.op == Opcode::VADD ? a + b
+                : in.op == Opcode::VSUB ? a - b
+                : in.op == Opcode::VMUL ? a * b
+                                        : std::max(a, b);
+        write_flat(mem_, O, in.core, i, r);
+      }
       rec.cycles = vector_cycles(n);
+      return;
+    }
+
+    case Opcode::SIGMOID: {
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int64_t n = O.numel();
+      for (int64_t i = 0; i < n; ++i) {
+        float x = read_flat(mem_, I, in.core, i);
+        write_flat(mem_, O, in.core, i, 1.f / (1.f + std::exp(-x)));
+      }
+      rec.cycles = vector_cycles(n, 4.0);
       return;
     }
 

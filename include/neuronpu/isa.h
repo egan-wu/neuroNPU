@@ -36,6 +36,11 @@ enum class Opcode {
               //          imm0 = base (default 10000), imm1 = position offset (default 0)
   LOOP,       // repeat the body up to the matching ENDLOOP imm0 times
   ENDLOOP,    // close the nearest LOOP
+  // --- appended (keep values stable for the binary format) ---
+  VMUL,       // out = a * b   (elementwise; SwiGLU gating)
+  VSUB,       // out = a - b   (elementwise)
+  VMAX,       // out = max(a, b) (elementwise)
+  SIGMOID,    // out = 1/(1+exp(-in))
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);
