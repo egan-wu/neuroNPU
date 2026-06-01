@@ -13,10 +13,10 @@ def _save_npy(path, arr):
 
 
 def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
-                    workdir: str, timing_only=False, out_dir=None):
+                    workdir: str, timing_only=False, out_dir=None, opt=None):
     os.makedirs(workdir, exist_ok=True)
     out_dir = out_dir or os.path.join(workdir, "logs")
-    text, ddr_data, in_descs, out_descs = compile_graph(g)
+    text, ddr_data, in_descs, out_descs, stats = compile_graph(g, opt)
     asm_path = os.path.join(workdir, "model.npuasm")
     bin_path = os.path.join(workdir, "model.npubin")
     with open(asm_path, "w") as f:
@@ -42,6 +42,7 @@ def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
     with open(os.path.join(out_dir, "perf.json")) as f:
         perf = json.load(f)
 
+    perf["compile_stats"] = stats
     outputs = {}
     if not timing_only:
         for ir_out, asm_name in out_descs.items():

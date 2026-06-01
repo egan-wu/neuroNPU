@@ -18,11 +18,12 @@ def _bytes(perf):
 
 def _row(tag, perf):
     vb = "MEM " if perf["memory_bound"] else "CMP "
+    sram = perf.get("compile_stats", {}).get("peak_sram_bytes", 0) / 1e6
     return (f"  {tag:<13}{perf['total_time_ns']/1e3:>10.1f}us"
             f"{perf['total_gmacs']:>9.2f}{perf['te_util']*100:>8.1f}%"
             f"{perf['ddr_bw_util']*100:>8.1f}%{_bytes(perf)/1e6:>9.0f}MB"
             f"{perf['arithmetic_intensity']:>8.2f}{vb:>6}"
-            f"{perf['energy_total_nj']/1e6:>9.3f}mJ")
+            f"{perf['energy_total_nj']/1e6:>8.2f}mJ{sram:>8.0f}MB")
 
 
 def main():
@@ -42,7 +43,7 @@ def main():
     print(f"=== Llama profile : {L} layers, hidden={cfg['hidden_size']}, "
           f"ffn={cfg['intermediate_size']}, vocab={cfg['vocab_size']} (FP32) ===\n")
     print(f"  {'phase':<13}{'time':>12}{'GMACs':>9}{'MACu':>9}{'DDRbw':>9}"
-          f"{'DDR':>11}{'AI':>8}{'bound':>6}{'energy':>12}")
+          f"{'DDR':>11}{'AI':>8}{'bound':>6}{'energy':>10}{'peakSRAM':>10}")
 
     def run(name, g):
         _, perf = compile_and_run(g, {}, a.neuronpu, a.config, a.workdir,
