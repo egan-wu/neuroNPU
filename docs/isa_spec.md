@@ -74,9 +74,12 @@ need no event.
 They are positional and follow the op's descriptor operands. (`#` and `;` start comments,
 so immediates must not use `#`.)
 
-Every instruction accepts optional trailing `@wait eN`, `@sig eN`, and `@core N`
-(which core/tile runs it; default 0 — see Multi-core below). Events are global, so a
-`@wait` can depend on another core's `@sig`.
+Every instruction accepts optional trailing `@wait`, `@sig eN`, and `@core N`
+(which core/tile runs it; default 0 — see Multi-core below). `@wait` may name **several**
+events — `@wait 1,2` or repeated `@wait 1 @wait 2` — and the instruction issues only once
+**all** are signaled (needed when an op depends on producers on different engines, e.g. a
+MATMUL waiting on both a DMA-staged weight and a vector-engine activation). Events are
+global, so a `@wait` can depend on another core's `@sig`.
 
 ## Assembly (`.npuasm`) directives
 

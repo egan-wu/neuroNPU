@@ -198,7 +198,15 @@ Program assemble(const std::string& text) {
       const std::string& a = tok[i];
       if (a == "accum") { in.accumulate = true; continue; }
       if (a == "@wait") { if (++i >= tok.size()) err("@wait needs event");
-                          in.wait_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
+                          // accepts one or a comma-separated list (e.g. @wait 1,2)
+                          std::string ev = tok[i]; size_t pos = 0;
+                          while (pos < ev.size()) {
+                            size_t comma = ev.find(',', pos);
+                            std::string one = ev.substr(pos, comma - pos);
+                            if (!one.empty()) in.wait_events.push_back(std::stoi(one.substr(one[0]=='e'?1:0)));
+                            if (comma == std::string::npos) break; pos = comma + 1;
+                          }
+                          continue; }
       if (a == "@sig")  { if (++i >= tok.size()) err("@sig needs event");
                           in.signal_event = std::stoi(tok[i].substr(tok[i][0]=='e'?1:0)); continue; }
       if (a == "@core") { if (++i >= tok.size()) err("@core needs id");
@@ -251,7 +259,8 @@ int event_span(const std::vector<Instr>& s, size_t begin, size_t end) {
       i = j + 1;
     } else {
       if (s[i].op == Opcode::ENDLOOP) throw std::runtime_error("ENDLOOP without matching LOOP");
-      sp = std::max(sp, std::max(s[i].wait_event, s[i].signal_event) + 1);
+      sp = std::max(sp, s[i].signal_event + 1);
+      for (int w : s[i].wait_events) sp = std::max(sp, w + 1);
       ++i;
     }
   }
@@ -314,7 +323,7 @@ Program flatten_loops(const Program& p) {
               auto it = off.find(a);
               a = variant_id(a, it == off.end() ? 0 : it->second);
             }
-            if (ni.wait_event >= 0)   ni.wait_event += ev_base;
+            for (int& w : ni.wait_events) w += ev_base;
             if (ni.signal_event >= 0) ni.signal_event += ev_base;
             out.instrs.push_back(std::move(ni));
             ++i;
@@ -344,7 +353,7 @@ static std::string get_str(std::istream& i) {
 void write_binary(const Program& p, const std::string& path) {
   std::ofstream o(path, std::ios::binary);
   if (!o) throw std::runtime_error("cannot write binary: " + path);
-  o.write("NPUB", 4); put<uint32_t>(o, 4u);
+  o.write("NPUB", 4); put<uint32_t>(o, 5u);
 
   put<uint32_t>(o, uint32_t(p.descriptors.size()));
   for (const auto& d : p.descriptors) {
@@ -363,7 +372,8 @@ void write_binary(const Program& p, const std::string& path) {
   for (const auto& in : p.instrs) {
     put<uint8_t>(o, uint8_t(in.op));
     put<uint8_t>(o, in.accumulate ? 1 : 0);
-    put<int32_t>(o, in.wait_event);
+    put<uint16_t>(o, uint16_t(in.wait_events.size()));
+    for (int w : in.wait_events) put<int32_t>(o, w);
     put<int32_t>(o, in.signal_event);
     put<int32_t>(o, in.core);
     put<uint16_t>(o, uint16_t(in.args.size()));
@@ -386,7 +396,7 @@ Program read_binary(const std::string& path) {
   char magic[4]; in.read(magic, 4);
   if (std::memcmp(magic, "NPUB", 4) != 0) throw std::runtime_error("bad magic in " + path);
   uint32_t ver = get<uint32_t>(in);
-  if (ver != 4) throw std::runtime_error("unsupported .npubin version (expected 4)");
+  if (ver != 5) throw std::runtime_error("unsupported .npubin version (expected 5)");
 
   Program p;
   uint32_t nd = get<uint32_t>(in);
@@ -408,7 +418,8 @@ Program read_binary(const std::string& path) {
     Instr in2;
     in2.op = Opcode(get<uint8_t>(in));
     in2.accumulate = get<uint8_t>(in) != 0;
-    in2.wait_event = get<int32_t>(in);
+    uint16_t nw = get<uint16_t>(in);
+    for (uint16_t w = 0; w < nw; ++w) in2.wait_events.push_back(get<int32_t>(in));
     in2.signal_event = get<int32_t>(in);
     in2.core = get<int32_t>(in);
     uint16_t na = get<uint16_t>(in);

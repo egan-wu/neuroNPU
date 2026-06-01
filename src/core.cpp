@@ -417,7 +417,8 @@ RunResult Core::run() {
   const double EPS = 1e-9;
 
   auto ready = [&](const Instr& in) {
-    return in.wait_event < 0 || ev.find(in.wait_event) != ev.end();
+    for (int w : in.wait_events) if (ev.find(w) == ev.end()) return false;
+    return true;
   };
   auto dma_in_flight = [&](int c) {
     int n = 0; for (auto& r : running) if (r.is_dma && r.core == c) ++n; return n;
@@ -435,7 +436,7 @@ RunResult Core::run() {
     r.rec.idx = ii;
     r.rec.op = in.op;
     r.rec.engine = Engine(e);
-    r.rec.wait_event = in.wait_event;
+    r.rec.wait_events = in.wait_events;
     r.rec.signal_event = in.signal_event;
     r.rec.start = now;
     exec(in, r.rec, out);  // functional work; sets macs/bytes and (non-DMA) cycles

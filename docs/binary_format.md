@@ -1,4 +1,4 @@
-# NeuroNPU — `.npubin` Binary Format (v4)
+# NeuroNPU — `.npubin` Binary Format (v5)
 
 The stable, machine-emitted form of a program. All integers are **little-endian**.
 Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_binary`).
@@ -6,7 +6,7 @@ Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_bina
 ```
 Header
   char[4]   magic      = "NPUB"
-  u32       version    = 4
+  u32       version    = 5
 
 Descriptor table
   u32       num_descriptors
@@ -27,7 +27,8 @@ Instruction stream
   repeat:
     u8      opcode        (see table below)
     u8      accumulate    (0/1)
-    i32     wait_event    (-1 = none)
+    u16     num_wait
+    i32[num_wait] wait_events   (issue waits until ALL are signaled)
     i32     signal_event  (-1 = none)
     i32     core          (core/tile id, default 0)
     u16     num_args

@@ -6,6 +6,12 @@
 
 namespace neuronpu {
 
+static std::string ev_array(const std::vector<int>& v) {
+  std::string s = "[";
+  for (size_t i = 0; i < v.size(); ++i) { if (i) s += ','; s += std::to_string(v[i]); }
+  return s + "]";
+}
+
 void Logger::write(const RunResult& r) const {
   std::ofstream isa(dir_ + "/isa_trace.jsonl");
   if (!isa) throw std::runtime_error("cannot write log dir: " + dir_);
@@ -16,7 +22,7 @@ void Logger::write(const RunResult& r) const {
         << ",\"start\":" << e.start
         << ",\"end\":" << e.end
         << ",\"cycles\":" << e.cycles
-        << ",\"wait\":" << e.wait_event
+        << ",\"wait\":" << ev_array(e.wait_events)
         << ",\"sig\":" << e.signal_event
         << ",\"macs\":" << e.macs
         << ",\"bytes\":" << e.bytes
@@ -65,7 +71,7 @@ void Logger::write_perfetto(const RunResult& r) const {
       << R"(,"cycles":)" << e.cycles
       << R"(,"macs":)" << e.macs
       << R"(,"bytes":)" << e.bytes
-      << R"(,"wait":)" << e.wait_event
+      << R"(,"wait":)" << ev_array(e.wait_events)
       << R"(,"sig":)" << e.signal_event << "}}";
   }
 

@@ -69,7 +69,7 @@ struct Instr {
   std::vector<int>    args;            // descriptor ids; meaning is per-opcode
   std::vector<double> imms;            // scalar immediates (eps, scale, ...)
   bool                accumulate = false;
-  int                 wait_event = -1; // issue blocks until this event is signaled
+  std::vector<int>    wait_events;     // issue blocks until ALL are signaled
   int                 signal_event = -1; // signaled on completion
   int                 core = 0;       // which core/tile executes this instruction
   Engine engine() const { return opcode_engine(op); }

@@ -16,7 +16,7 @@ struct InstrRecord {
   double start = 0;   // cycles
   double end = 0;     // cycles
   double cycles = 0;  // end - start
-  int    wait_event = -1;
+  std::vector<int> wait_events;
   int    signal_event = -1;
   double macs = 0;     // tensor ops only
   uint64_t bytes = 0;  // dma ops only
