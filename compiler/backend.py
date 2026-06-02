@@ -273,7 +273,8 @@ class Backend:
             a, W = op.inputs
             M, N = self.g.tensors[op.outputs[0]].shape[-2:]
             Kdim = self.g.tensors[a].shape[-1]
-            self._tiled_matmul(out, M, N, a, Kdim, W, False, [])
+            bw = [self.war_of.pop(out)] if out in self.war_of else []  # reused-buffer WAR
+            self._tiled_matmul(out, M, N, a, Kdim, W, False, bw)
             return
 
         # output buffer may be a reused region -> wait for its previous reader (WAR)
@@ -316,52 +317,53 @@ class Backend:
                 and t.numel > self.opt.get("tile_budget", 512 * 512))
 
     def _tiled_matmul(self, out_asm, M, N, a_name, K, w_ir, init_accum, base_waits):
-        """Stream a large weight matmul in SRAM-sized tiles (N then K). Models the
-        same MACs and total weight DDR traffic as one big matmul, but peak SRAM is
-        one weight tile instead of the whole weight. (Timing/traffic-faithful;
-        used on the timing-only profiling path.)"""
+        """Stream a large weight matmul in SRAM-sized tiles (N then K; K-tiles
+        accumulate). Peak SRAM is a couple of weight tiles instead of the whole
+        weight. Functionally correct: the weight tile is a STRIDED slice of the
+        DDR weight, and the a/out column slices are strided views."""
         budget = self.opt.get("tile_budget", 512 * 512)     # elems per weight tile
         tn = min(N, budget)
         tk = min(K, max(1, budget // tn))
-        w_ddr = self._decl_ddr(w_ir)
-        a_s = self._stage_or_act(a_name)
-        # reusable tile descriptors (timing-only: addresses/data don't matter)
-        uid = self.cur_i                              # unique per matmul op
-        nbuf = max(1, self.opt.get("nbuf", 2))        # weight-tile buffers (double-buffer)
-        w_base = self._addr_of(w_ddr)
-        wtd = self._name(w_ir, f"_wtd{uid}")          # tile-sized DDR source (tk*tn)
-        self.decls.append(f".desc {wtd} ddr f32 0x{w_base:x} {tk}x{tn}")
-        # ping-pong SRAM tile buffers so a tile loads while another computes
-        bufs = []
-        for b in range(nbuf):
-            addr, sz, _ = self.sram.alloc(tk * tn * F32)
-            nm = self._name(w_ir, f"_wt{uid}_{b}")
-            self.decls.append(f".desc {nm} sram f32 0x{addr:x} {tk}x{tn}")
-            bufs.append((nm, addr, sz))
-        a_sl = self._name(a_name, f"_asl{uid}")
-        self.decls.append(f".desc {a_sl} sram f32 0x{self._addr_of(a_s):x} {M}x{tk}")
-        o_sl = self._name(out_asm, f"_osl{uid}")
-        self.decls.append(f".desc {o_sl} sram f32 0x{self._addr_of(out_asm):x} {M}x{tn}")
-        a_ev = self.ready.get(a_s, (None, None))
+        uid = self.cur_i
+        nbuf = max(1, self.opt.get("nbuf", 2))
+        w_base = self._addr_of(self._decl_ddr(w_ir))
+        a_base = self._addr_of(self._stage_or_act(a_name))
+        out_base = self._addr_of(out_asm)
+        a_ev = self.ready.get(self.sram_of.get(a_name), (None, None))
         a_wait = [a_ev[0]] if a_ev[0] is not None and a_ev[1] != "TENSOR" else []
 
-        buf_ev = [None] * nbuf    # last matmul event that read each buffer (WAR)
+        bufs = [self.sram.alloc(tk * tn * F32) for _ in range(nbuf)]       # (addr,size,war)
+        buf_ev = [war for (_, _, war) in bufs]   # initial WAR = previous occupant's reader
+        a_decl = {}            # k0 -> a-slice descriptor (reused across n-tiles)
         last, ti = None, 0
         for n0 in range(0, N, tn):
+            tn_e = min(tn, N - n0)
+            o_sl = self._name(out_asm, f"_o{uid}_{n0}")
+            self.decls.append(f".desc {o_sl} sram f32 0x{out_base + n0*F32:x} {M}x{tn_e} :{N},1")
             for ki, k0 in enumerate(range(0, K, tk)):
-                nm = bufs[ti % nbuf][0]
-                war = buf_ev[ti % nbuf]               # reuse this buffer only after its reader
+                tk_e = min(tk, K - k0)
+                addr, sz, _ = bufs[ti % nbuf]
+                if k0 not in a_decl:
+                    a_decl[k0] = self._name(a_name, f"_a{uid}_{k0}")
+                    self.decls.append(f".desc {a_decl[k0]} sram f32 0x{a_base + k0*F32:x} "
+                                      f"{M}x{tk_e} :{K},1")
+                wtd = self._name(w_ir, f"_wd{uid}_{ti}")     # strided DDR slice [tk,tn]
+                self.decls.append(f".desc {wtd} ddr f32 0x{w_base + (k0*N + n0)*F32:x} "
+                                  f"{tk_e}x{tn_e} :{N},1")
+                wt = self._name(w_ir, f"_w{uid}_{ti}")       # contiguous SRAM tile
+                self.decls.append(f".desc {wt} sram f32 0x{addr:x} {tk_e}x{tn_e}")
+                war = buf_ev[ti % nbuf]
                 ev_w = self._new_ev()
                 lw = f" @wait {war}" if war is not None else ""
-                self.prog.append(f"DMA.LOAD {nm} {wtd}{lw} @sig {ev_w}")
+                self.prog.append(f"DMA.LOAD {wt} {wtd}{lw} @sig {ev_w}")
                 accum = " accum" if (init_accum or ki > 0) else ""
                 ev_m = self._new_ev()
                 waits = sorted(set(list(base_waits) + a_wait + [ev_w]))
-                self.prog.append(f"MATMUL {o_sl} {a_sl} {nm}{accum} "
+                self.prog.append(f"MATMUL {o_sl} {a_decl[k0]} {wt}{accum} "
                                  f"@wait {','.join(map(str, waits))} @sig {ev_m}")
                 buf_ev[ti % nbuf] = ev_m
                 last, ti = ev_m, ti + 1
-        for (nm, addr, sz), ev in zip(bufs, buf_ev):
+        for (addr, sz, _), ev in zip(bufs, buf_ev):
             self.sram.release(addr, sz, ev)
         self.ready[out_asm] = (last, "TENSOR")
         self.op_sig[self.cur_i] = last

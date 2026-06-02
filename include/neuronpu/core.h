@@ -36,6 +36,8 @@ class Core {
 
   // Functional execution of one instruction.
   void exec(const Instr& in, InstrRecord& rec, RunResult& out);
+  // Element-wise strided DMA copy (src/dst may be non-contiguous views, e.g. tiles).
+  void dma_strided(const Descriptor& src, const Descriptor& dst, int core);
 
   Program        prog_;   // flattened (loops expanded) copy of the program
   const Config&  cfg_;

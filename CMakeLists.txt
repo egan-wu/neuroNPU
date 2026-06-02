@@ -87,6 +87,13 @@ if(PYTHON3)
                    --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                    --workdir ${CMAKE_BINARY_DIR}/compiler
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME compiler_validate_tiled
+           COMMAND ${PYTHON3} -m compiler.validate
+                   --neuronpu $<TARGET_FILE:neuronpu>
+                   --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                   --workdir ${CMAKE_BINARY_DIR}/compiler_t
+                   --fuse --tile --tile-budget 16 --nbuf 2
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llama_profile
            COMMAND ${PYTHON3} -m compiler.profile_llama
                    --config-json ${CMAKE_SOURCE_DIR}/tests/llama_tiny_config.json

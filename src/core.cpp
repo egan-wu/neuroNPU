@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
@@ -57,6 +58,21 @@ static void write_flat(Memory& mem, const Descriptor& d, int core, int64_t i, fl
              d.dtype, v);
 }
 
+void Core::dma_strided(const Descriptor& src, const Descriptor& dst, int core) {
+  size_t es = dtype_size(src.dtype);
+  int64_t n = src.numel();
+  std::vector<int64_t> idx(src.dims.size(), 0);
+  MemSpaceStore& ss = mem_.space(src.space, core);
+  MemSpaceStore& ds = mem_.space(dst.space, core);
+  for (int64_t c = 0; c < n; ++c) {
+    std::memcpy(ds.at(dst.offset_bytes(idx)), ss.at(src.offset_bytes(idx)), es);
+    for (int d = int(src.dims.size()) - 1; d >= 0; --d) {   // odometer over dims
+      if (++idx[d] < src.dims[d]) break;
+      idx[d] = 0;
+    }
+  }
+}
+
 void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
   switch (in.op) {
     case Opcode::NOP:
@@ -73,9 +89,13 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& src = prog_.descriptors[in.args.at(1)];
       uint64_t n = uint64_t(src.bytes());
       if (functional_) {
-        std::vector<uint8_t> buf(n);
-        mem_.space(src.space, in.core).read(src.base_addr, buf.data(), n);
-        mem_.space(dst.space, in.core).write(dst.base_addr, buf.data(), n);
+        if (src.strides.empty() && dst.strides.empty()) {   // fast contiguous path
+          std::vector<uint8_t> buf(n);
+          mem_.space(src.space, in.core).read(src.base_addr, buf.data(), n);
+          mem_.space(dst.space, in.core).write(dst.base_addr, buf.data(), n);
+        } else {
+          dma_strided(src, dst, in.core);                    // gather/scatter strided tile
+        }
       }
       rec.bytes = n;
       out.ddr_bytes += n;
