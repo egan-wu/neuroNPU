@@ -101,6 +101,9 @@ if(PYTHON3)
                    --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
                    --workdir ${CMAKE_BINARY_DIR}/llama --prompt 16 --gen 4 --kv 16 64
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME trace_analyze
+           COMMAND ${PYTHON3} -c "import subprocess,sys; subprocess.run([sys.executable,'-m','compiler.profile_llama','--config-json','tests/llama_tiny_config.json','--neuronpu','$<TARGET_FILE:neuronpu>','--config','configs/default.yaml','--workdir','${CMAKE_BINARY_DIR}/llama_t','--prompt','16','--gen','2','--kv','16','--tile'],check=True); subprocess.run([sys.executable,'-m','compiler.analyze','${CMAKE_BINARY_DIR}/llama_t/prefill'],check=True)"
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llm_demo
            COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
                    --neuronpu $<TARGET_FILE:neuronpu>

@@ -42,8 +42,10 @@ def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
     import json
     with open(os.path.join(out_dir, "perf.json")) as f:
         perf = json.load(f)
+    with open(os.path.join(out_dir, "scopes.json"), "w") as f:   # idx -> scope label
+        json.dump(stats.get("scopes", []), f)
 
-    perf["compile_stats"] = stats
+    perf["compile_stats"] = {k: v for k, v in stats.items() if k != "scopes"}
     outputs = {}
     if not timing_only:
         for ir_out, asm_name in out_descs.items():

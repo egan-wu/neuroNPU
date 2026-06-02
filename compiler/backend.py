@@ -76,6 +76,8 @@ class Backend:
         self.war_of = {}         # asm -> anti-dependency event (reuse WAR hazard)
         self.op_sig = {}         # op index -> its signal event
         self.cur_i = -1
+        self.scopes = []         # per-instruction scope label (layer/op-kind)
+        self.cur_scope = "global"
         self.last_use = self._compute_last_use()
         self.san = {}            # ir name -> asm identifier
         self.decls = []          # .desc / .data lines
@@ -199,12 +201,28 @@ class Backend:
         t = self.g.tensors[ir_name]
         return self._stage(ir_name) if (t.is_weight or t.is_input) else self._activation(ir_name)
 
+    def _scope_label(self, op):
+        name = op.outputs[0] if op.outputs else "?"
+        m = re.match(r"(L\d+)\.", name)
+        if m:                       layer = m.group(1)
+        elif name in ("logits", "last", "xn_final"): layer = "head"
+        elif name == "hidden":      layer = "embed"
+        else:                       layer = "global"
+        return f"{layer}/{op.kind}"
+
+    def _pad_scopes(self):
+        while len(self.scopes) < len(self.prog):
+            self.scopes.append(self.cur_scope)
+
     # ---- main lowering ----
     def compile(self):
         for i, op in enumerate(self.g.ops):
             self.cur_i = i
+            self.cur_scope = self._scope_label(op)
             self._lower(op)
             self._free_after(i)
+            self._pad_scopes()
+        self.cur_scope = "output"
         # store graph outputs back to DDR
         for o in self.g.outputs:
             s = self.sram_of[o]
@@ -216,13 +234,16 @@ class Backend:
             self.output_descs[o] = ddr_asm
         for i in self.g.inputs:
             self.input_descs[i] = self._decl_ddr(i)
+        self.cur_scope = "halt"
         self.prog.append("HALT")
+        self._pad_scopes()
         text = "\n".join(self.decls) + "\n\n" + "\n".join(self.prog) + "\n"
         self.stats = {
             "peak_sram_bytes": self.sram.high,
             "ddr_bytes": self.ddr.off,
             "num_instrs": len([p for p in self.prog if p != "HALT"]),
             "num_descs": len(self.decls),
+            "scopes": self.scopes,
         }
         return text
 
