@@ -339,6 +339,22 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
+    case Opcode::REPEAT_KV: {  // [R,kv_dim] -> [R,kv_dim*g] ; imm0=group, imm1=head_dim
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int g = int(in.imm(0, 1)), hd = int(in.imm(1, 1));
+      int64_t kv_dim = I.dims.back(), R = I.numel() / kv_dim, kvh = kv_dim / hd;
+      if (functional_)
+        for (int64_t r = 0; r < R; ++r)
+          for (int64_t kh = 0; kh < kvh; ++kh)
+            for (int rep = 0; rep < g; ++rep)
+              for (int d = 0; d < hd; ++d)
+                write_flat(mem_, O, in.core, r * (kv_dim * g) + (kh * g + rep) * hd + d,
+                           read_flat(mem_, I, in.core, r * kv_dim + kh * hd + d));
+      rec.cycles = vector_cycles(O.numel());
+      return;
+    }
+
     case Opcode::CONV: {  // out[Co,Ho,Wo] = in[Ci,H,W] * w[Co,Ci,Kh,Kw] ; imm0=stride imm1=pad
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];

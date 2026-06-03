@@ -73,6 +73,7 @@ Init-data section
 | 22 | `MAXPOOL` |
 | 23 | `UPSAMPLE` |
 | 24 | `CONCAT` |
+| 25 | `REPEAT_KV` |
 
 ## Argument conventions
 

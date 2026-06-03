@@ -58,6 +58,7 @@ need no event.
 | `MAXPOOL`   | `MAXPOOL out in $kernel $stride $pad` | 2D max pool `[C,H,W] -> [C,Ho,Wo]` |
 | `UPSAMPLE`  | `UPSAMPLE out in $factor` | nearest-neighbour upsample `[C,H,W] -> [C,H·f,W·f]` |
 | `CONCAT`    | `CONCAT out a b` | concatenate `a`,`b` along channel axis 0 |
+| `REPEAT_KV` | `REPEAT_KV out in $group $head_dim` | GQA: repeat each KV head block `group`× (`[R,kv_dim] -> [R,kv_dim·group]`) |
 | `VADD`/`VSUB`/`VMUL`/`VMAX` | `OP out a b` | elementwise `a+b` / `a-b` / `a*b` / `max(a,b)` (`VMUL` is SwiGLU gating) |
 | `RELU`      | `RELU out in` | elementwise `out = max(0, in)` |
 | `SIGMOID`   | `SIGMOID out in` | elementwise `out = 1/(1+e^-in)` |

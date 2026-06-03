@@ -25,6 +25,7 @@ _MNEMONIC = {
     "gelu": "GELU", "sigmoid": "SIGMOID", "mul": "VMUL", "add": "VADD",
     "sub": "VSUB", "matmul": "MATMUL", "matmul_t": "MATMUL", "gather": "GATHER",
     "conv": "CONV", "maxpool": "MAXPOOL", "upsample": "UPSAMPLE", "concat": "CONCAT",
+    "repeat_kv": "REPEAT_KV",
 }
 
 
@@ -406,6 +407,8 @@ class Backend:
             return f" ${a.get('kernel', 2)} ${a.get('stride', a.get('kernel', 2))} ${a.get('pad', 0)}"
         if op.kind == "upsample":
             return f" ${a.get('factor', 2)}"
+        if op.kind == "repeat_kv":
+            return f" ${a.get('group', 1)} ${a.get('head_dim', 1)}"
         return ""
 
 

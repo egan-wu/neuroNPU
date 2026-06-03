@@ -120,6 +120,10 @@ def execute(g: Graph, inputs: dict) -> dict:
             r = np.repeat(np.repeat(a, f, axis=-2), f, axis=-1)
         elif k == "concat":
             r = np.concatenate([a, ins[1]], axis=0)
+        elif k == "repeat_kv":                       # GQA: repeat each kv head `group`x
+            g, hd = op.attrs["group"], op.attrs["head_dim"]
+            R, kv_dim = a.shape
+            r = np.repeat(a.reshape(R, kv_dim // hd, hd), g, axis=1).reshape(R, kv_dim * g)
         else:
             raise ValueError(f"reference: unknown op kind {k}")
         vals[op.outputs[0]] = np.asarray(r, dtype=np.float32)

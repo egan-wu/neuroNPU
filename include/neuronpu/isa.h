@@ -45,6 +45,8 @@ enum class Opcode {
   MAXPOOL,    // 2D max pool [C,H,W]->[C,Ho,Wo]  (imm0=kernel, imm1=stride, imm2=pad)
   UPSAMPLE,   // nearest upsample [C,H,W]->[C,H*f,W*f]  (imm0=factor)
   CONCAT,     // concat a,b along channel axis 0: [Ca+Cb,H,W]
+  REPEAT_KV,  // GQA: [R,kv_dim] -> [R,kv_dim*group], repeat each head block (imm0=group,
+              //      imm1=head_dim)
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);
