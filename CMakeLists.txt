@@ -104,6 +104,9 @@ if(PYTHON3)
   add_test(NAME trace_analyze
            COMMAND ${PYTHON3} -c "import subprocess,sys; subprocess.run([sys.executable,'-m','compiler.profile_llama','--config-json','tests/llama_tiny_config.json','--neuronpu','$<TARGET_FILE:neuronpu>','--config','configs/default.yaml','--workdir','${CMAKE_BINARY_DIR}/llama_t','--prompt','16','--gen','2','--kv','16','--tile'],check=True); subprocess.run([sys.executable,'-m','compiler.analyze','${CMAKE_BINARY_DIR}/llama_t/prefill'],check=True)"
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME int8_functional
+           COMMAND ${PYTHON3} -c "import numpy as np; from compiler.models import tiny_llama_layer; from compiler.driver import compile_and_run; from compiler import reference, passes; g=tiny_llama_layer(8,32,64); x=(np.random.default_rng(1).standard_normal((8,32))*0.5).astype(np.float32); gq=passes.quantize(g,{'x':x}); rq=reference.execute(gq,{'x':x})['y']; got,_=compile_and_run(gq,{'x':x},'$<TARGET_FILE:neuronpu>','${CMAKE_SOURCE_DIR}/configs/default.yaml','${CMAKE_BINARY_DIR}/q8',opt={'reuse':True}); exit(0 if np.max(np.abs(got['y']-rq))<1e-3 else 1)"
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME quant_profile
            COMMAND ${PYTHON3} -m compiler.profile_quant
                    --config-json ${CMAKE_SOURCE_DIR}/tests/llama_tiny_config.json

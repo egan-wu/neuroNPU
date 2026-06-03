@@ -67,7 +67,8 @@ need no event.
 | `SOFTMAX`   | `SOFTMAX out in [$causal] [$q_offset]` | softmax along the **last** dim; `$causal=1` masks future keys (query row `r` attends keys `0..q_offset+r`; `q_offset` defaults to `kv_len - q_rows`) |
 | `RMSNORM`   | `RMSNORM out in weight $eps` | `out = in / rms(row) · weight`; `eps` default 1e-6 |
 | `LAYERNORM` | `LAYERNORM out in weight bias $eps` | `out = (in−mean)/std · weight + bias`; `eps` default 1e-5 |
-| `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. to `i8`) |
+| `REQUANT`   | `REQUANT out in $scale $zp` | `out = clamp(round(in/scale) + zp)` (e.g. fp32 -> `i8`) |
+| `SCALE`     | `SCALE out in $factor` | `out = in · factor` (e.g. int8-GEMM dequant by `scale_a·scale_w`) |
 | `ROPE`      | `ROPE out in $base $pos_offset` | rotary embedding on pairs along the last dim; position = row + `pos_offset`; `base` default 10000 |
 | `GATHER`    | `GATHER out table $id0 $id1 ...` | embedding lookup: `out[n,:] = table[id_n,:]`; ids are immediates (known at compile time); table read counts as DDR traffic if the table is in DDR |
 | `LOOP`      | `LOOP $count` … `ENDLOOP` | repeat the body `count` times (see loops below) |

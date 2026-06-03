@@ -108,6 +108,8 @@ def execute(g: Graph, inputs: dict) -> dict:
             r = a[np.asarray(op.attrs["ids"], dtype=np.int64)]
         elif k == "scale":
             r = a * op.attrs["factor"]
+        elif k == "requant":                         # fp32 -> int8 codes (round+clamp)
+            r = np.clip(np.round(a / op.attrs["scale"] + op.attrs.get("zp", 0)), -128, 127)
         elif k == "take_last":                      # last row -> [1, D]
             r = a[-1:, :]
         elif k == "conv":

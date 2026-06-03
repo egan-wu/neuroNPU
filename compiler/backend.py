@@ -25,7 +25,7 @@ _MNEMONIC = {
     "gelu": "GELU", "sigmoid": "SIGMOID", "mul": "VMUL", "add": "VADD",
     "sub": "VSUB", "matmul": "MATMUL", "matmul_t": "MATMUL", "gather": "GATHER",
     "conv": "CONV", "maxpool": "MAXPOOL", "upsample": "UPSAMPLE", "concat": "CONCAT",
-    "repeat_kv": "REPEAT_KV",
+    "repeat_kv": "REPEAT_KV", "scale": "SCALE", "requant": "REQUANT",
 }
 
 
@@ -159,7 +159,7 @@ class Backend:
         self.sram_alloc[s_asm] = (addr, size)
         if war is not None:
             self.war_of[s_asm] = war
-        self.decls.append(f".desc {s_asm} sram f32 0x{addr:x} {self._dims(t.shape)}")
+        self.decls.append(f".desc {s_asm} sram {t.dtype} 0x{addr:x} {self._dims(t.shape)}")
         self.sram_of[ir_name] = s_asm
         return s_asm
 
@@ -409,6 +409,10 @@ class Backend:
             return f" ${a.get('factor', 2)}"
         if op.kind == "repeat_kv":
             return f" ${a.get('group', 1)} ${a.get('head_dim', 1)}"
+        if op.kind == "scale":
+            return f" ${a['factor']}"
+        if op.kind == "requant":
+            return f" ${a['scale']} ${a.get('zp', 0)}"
         return ""
 
 

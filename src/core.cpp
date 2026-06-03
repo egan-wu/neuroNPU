@@ -339,6 +339,17 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
+    case Opcode::SCALE: {  // out = in * imm0  (int8 GEMM dequant)
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      float s = float(in.imm(0, 1.0));
+      int64_t n = O.numel();
+      if (functional_)
+        for (int64_t i = 0; i < n; ++i) write_flat(mem_, O, in.core, i, read_flat(mem_, I, in.core, i) * s);
+      rec.cycles = vector_cycles(n);
+      return;
+    }
+
     case Opcode::REPEAT_KV: {  // [R,kv_dim] -> [R,kv_dim*g] ; imm0=group, imm1=head_dim
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];

@@ -74,6 +74,7 @@ Init-data section
 | 23 | `UPSAMPLE` |
 | 24 | `CONCAT` |
 | 25 | `REPEAT_KV` |
+| 26 | `SCALE` |
 
 ## Argument conventions
 

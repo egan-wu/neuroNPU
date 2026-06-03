@@ -47,6 +47,7 @@ enum class Opcode {
   CONCAT,     // concat a,b along channel axis 0: [Ca+Cb,H,W]
   REPEAT_KV,  // GQA: [R,kv_dim] -> [R,kv_dim*group], repeat each head block (imm0=group,
               //      imm1=head_dim)
+  SCALE,      // out = in * imm0   (e.g. int8 GEMM dequant by scale_a*scale_w)
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);

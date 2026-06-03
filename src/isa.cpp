@@ -32,6 +32,7 @@ const char* opcode_name(Opcode o) {
     case Opcode::GATHER: return "GATHER";
     case Opcode::MAXPOOL: return "MAXPOOL";   case Opcode::UPSAMPLE: return "UPSAMPLE";
     case Opcode::CONCAT: return "CONCAT";     case Opcode::REPEAT_KV: return "REPEAT_KV";
+    case Opcode::SCALE: return "SCALE";
   }
   return "?";
 }
@@ -45,7 +46,7 @@ Engine opcode_engine(Opcode o) {
     case Opcode::VMUL:    case Opcode::VSUB:    case Opcode::VMAX:
     case Opcode::SIGMOID: case Opcode::GATHER:
     case Opcode::MAXPOOL: case Opcode::UPSAMPLE: case Opcode::CONCAT:
-    case Opcode::REPEAT_KV:                        return Engine::VECTOR;
+    case Opcode::REPEAT_KV: case Opcode::SCALE:    return Engine::VECTOR;
     default:                                       return Engine::DMA;
   }
 }
@@ -130,6 +131,7 @@ static Opcode parse_opcode(const std::string& s, bool& ok) {
   if (s == "UPSAMPLE") return Opcode::UPSAMPLE;
   if (s == "CONCAT") return Opcode::CONCAT;
   if (s == "REPEAT_KV") return Opcode::REPEAT_KV;
+  if (s == "SCALE") return Opcode::SCALE;
   ok = false; return Opcode::NOP;
 }
 
