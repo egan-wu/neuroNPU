@@ -42,6 +42,7 @@ need no event.
 |--------|---------|
 | `DMA`    | `DMA.LOAD`, `DMA.STORE` |
 | `TENSOR` | `MATMUL`, `CONV` |
+| `VECTOR` (vision) | `MAXPOOL`, `UPSAMPLE`, `CONCAT` |
 | `VECTOR` | `VADD`, `VSUB`, `VMUL`, `VMAX`, `RELU`, `GELU`, `SILU`, `SIGMOID`, `SOFTMAX`, `RMSNORM`, `LAYERNORM`, `REQUANT`, `ROPE`, `GATHER` |
 | control  | `LOOP`, `ENDLOOP` (expanded at load) |
 | (any)    | `NOP`, `HALT` |
@@ -54,6 +55,9 @@ need no event.
 | `DMA.STORE` | `DMA.STORE dst_ddr src_sram` | copy `src` bytes SRAM→DDR |
 | `MATMUL`    | `MATMUL out a b [accum]` | `out[M,N] = a[M,K] @ b[K,N]`; `accum` adds into `out` |
 | `CONV`      | `CONV out in weight $stride $pad` | 2D conv, `in[Ci,H,W] * weight[Co,Ci,Kh,Kw] = out[Co,Ho,Wo]`, zero-pad; `stride` default 1, `pad` default 0 |
+| `MAXPOOL`   | `MAXPOOL out in $kernel $stride $pad` | 2D max pool `[C,H,W] -> [C,Ho,Wo]` |
+| `UPSAMPLE`  | `UPSAMPLE out in $factor` | nearest-neighbour upsample `[C,H,W] -> [C,H·f,W·f]` |
+| `CONCAT`    | `CONCAT out a b` | concatenate `a`,`b` along channel axis 0 |
 | `VADD`/`VSUB`/`VMUL`/`VMAX` | `OP out a b` | elementwise `a+b` / `a-b` / `a*b` / `max(a,b)` (`VMUL` is SwiGLU gating) |
 | `RELU`      | `RELU out in` | elementwise `out = max(0, in)` |
 | `SIGMOID`   | `SIGMOID out in` | elementwise `out = 1/(1+e^-in)` |

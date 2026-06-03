@@ -19,11 +19,12 @@ F32 = 4
 ALIGN = 256
 
 # op kind -> (ISA mnemonic, engine)
-TENSOR_OPS = {"matmul", "matmul_t"}
+TENSOR_OPS = {"matmul", "matmul_t", "conv"}
 _MNEMONIC = {
     "rmsnorm": "RMSNORM", "rope": "ROPE", "softmax": "SOFTMAX", "silu": "SILU",
     "gelu": "GELU", "sigmoid": "SIGMOID", "mul": "VMUL", "add": "VADD",
     "sub": "VSUB", "matmul": "MATMUL", "matmul_t": "MATMUL", "gather": "GATHER",
+    "conv": "CONV", "maxpool": "MAXPOOL", "upsample": "UPSAMPLE", "concat": "CONCAT",
 }
 
 
@@ -398,6 +399,12 @@ class Backend:
         if op.kind == "softmax" and a.get("causal"):
             q = a.get("q_offset")
             return f" $1" + (f" ${q}" if q is not None else "")
+        if op.kind == "conv":
+            return f" ${a.get('stride', 1)} ${a.get('pad', 0)}"
+        if op.kind == "maxpool":
+            return f" ${a.get('kernel', 2)} ${a.get('stride', a.get('kernel', 2))} ${a.get('pad', 0)}"
+        if op.kind == "upsample":
+            return f" ${a.get('factor', 2)}"
         return ""
 
 

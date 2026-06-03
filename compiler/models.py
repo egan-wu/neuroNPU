@@ -46,6 +46,31 @@ def tiny_llama_layer(S=4, D=8, H=16, seed=0) -> Graph:
     return g
 
 
+def yolo_block(Cin=3, HW=16, seed=0) -> Graph:
+    """A small YOLO-style vision block: conv -> SiLU -> maxpool -> conv -> SiLU
+    -> upsample -> concat (FPN-like skip) -> conv. Exercises conv/maxpool/
+    upsample/concat end to end."""
+    rng = np.random.default_rng(seed)
+    g = Graph("yolo_block")
+
+    def w(name, shape):
+        return g.tensor(name, shape, data=(rng.standard_normal(shape) * 0.2).astype(np.float32))
+
+    x = g.tensor("x", (Cin, HW, HW), is_input=True)
+    W1, W2, W3 = w("W1", (8, Cin, 3, 3)), w("W2", (16, 8, 3, 3)), w("W3", (8, 24, 3, 3))
+
+    c1 = g.add("conv", [x, W1], "c1", (8, HW, HW), {"stride": 1, "pad": 1})
+    c1 = g.add("silu", [c1], "c1s", (8, HW, HW))
+    p1 = g.add("maxpool", [c1], "p1", (8, HW // 2, HW // 2), {"kernel": 2, "stride": 2})
+    c2 = g.add("conv", [p1, W2], "c2", (16, HW // 2, HW // 2), {"stride": 1, "pad": 1})
+    c2 = g.add("silu", [c2], "c2s", (16, HW // 2, HW // 2))
+    u = g.add("upsample", [c2], "u", (16, HW, HW), {"factor": 2})
+    cat = g.add("concat", [c1, u], "cat", (24, HW, HW))
+    out = g.add("conv", [cat, W3], "y", (8, HW, HW), {"stride": 1, "pad": 1})
+    g.mark_output(out)
+    return g
+
+
 def llama_from_config(cfg: dict, q_rows: int, kv_rows: int, n_layers=None) -> Graph:
     """Build a real-scale Llama decoder forward pass as Graph IR (no weight data;
     for timing-only profiling).  q_rows==kv_rows => prefill; q_rows==1 & kv_rows>1

@@ -70,6 +70,9 @@ Init-data section
 | 19 | `VMAX` |
 | 20 | `SIGMOID` |
 | 21 | `GATHER` |
+| 22 | `MAXPOOL` |
+| 23 | `UPSAMPLE` |
+| 24 | `CONCAT` |
 
 ## Argument conventions
 

@@ -27,6 +27,32 @@ def _rope(x, base, pos_offset):
     return out
 
 
+def _conv2d(x, w, stride, pad):                     # x[Ci,H,W], w[Co,Ci,Kh,Kw]
+    Ci, H, W = x.shape
+    Co, _, Kh, Kw = w.shape
+    Ho, Wo = (H + 2 * pad - Kh) // stride + 1, (W + 2 * pad - Kw) // stride + 1
+    xp = np.pad(x, ((0, 0), (pad, pad), (pad, pad)))
+    out = np.zeros((Co, Ho, Wo), np.float32)
+    for oh in range(Ho):
+        for ow in range(Wo):
+            patch = xp[:, oh * stride:oh * stride + Kh, ow * stride:ow * stride + Kw]
+            out[:, oh, ow] = np.tensordot(w, patch, axes=([1, 2, 3], [0, 1, 2]))
+    return out
+
+
+def _maxpool(x, k, stride, pad):                    # x[C,H,W]
+    stride = stride or k
+    C, H, W = x.shape
+    Ho, Wo = (H + 2 * pad - k) // stride + 1, (W + 2 * pad - k) // stride + 1
+    xp = np.pad(x, ((0, 0), (pad, pad), (pad, pad)), constant_values=-np.inf)
+    out = np.empty((C, Ho, Wo), np.float32)
+    for oh in range(Ho):
+        for ow in range(Wo):
+            out[:, oh, ow] = xp[:, oh * stride:oh * stride + k,
+                                ow * stride:ow * stride + k].max(axis=(1, 2))
+    return out
+
+
 def _softmax(x, causal, q_offset):
     x = x.astype(np.float64)
     R, C = x.shape
@@ -84,6 +110,16 @@ def execute(g: Graph, inputs: dict) -> dict:
             r = a * op.attrs["factor"]
         elif k == "take_last":                      # last row -> [1, D]
             r = a[-1:, :]
+        elif k == "conv":
+            r = _conv2d(a, ins[1], op.attrs.get("stride", 1), op.attrs.get("pad", 0))
+        elif k == "maxpool":
+            r = _maxpool(a, op.attrs.get("kernel", 2), op.attrs.get("stride"),
+                         op.attrs.get("pad", 0))
+        elif k == "upsample":
+            f = op.attrs.get("factor", 2)
+            r = np.repeat(np.repeat(a, f, axis=-2), f, axis=-1)
+        elif k == "concat":
+            r = np.concatenate([a, ins[1]], axis=0)
         else:
             raise ValueError(f"reference: unknown op kind {k}")
         vals[op.outputs[0]] = np.asarray(r, dtype=np.float32)

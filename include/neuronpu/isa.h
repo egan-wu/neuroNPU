@@ -42,6 +42,9 @@ enum class Opcode {
   VMAX,       // out = max(a, b) (elementwise)
   SIGMOID,    // out = 1/(1+exp(-in))
   GATHER,     // out[n] = table[imm[n]]  (embedding lookup; indices are immediates)
+  MAXPOOL,    // 2D max pool [C,H,W]->[C,Ho,Wo]  (imm0=kernel, imm1=stride, imm2=pad)
+  UPSAMPLE,   // nearest upsample [C,H,W]->[C,H*f,W*f]  (imm0=factor)
+  CONCAT,     // concat a,b along channel axis 0: [Ca+Cb,H,W]
 };
 const char* opcode_name(Opcode o);
 Engine      opcode_engine(Opcode o);

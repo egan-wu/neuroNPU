@@ -287,6 +287,58 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       return;
     }
 
+    case Opcode::MAXPOOL: {  // [C,H,W] -> [C,Ho,Wo] ; imm0=kernel imm1=stride imm2=pad
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int Kp = int(in.imm(0, 2)), stride = int(in.imm(1, Kp)), pad = int(in.imm(2, 0));
+      int64_t C = I.dims.at(0), H = I.dims.at(1), W = I.dims.at(2);
+      int64_t Ho = O.dims.at(1), Wo = O.dims.at(2);
+      if (functional_)
+        for (int64_t c = 0; c < C; ++c)
+          for (int64_t oh = 0; oh < Ho; ++oh)
+            for (int64_t ow = 0; ow < Wo; ++ow) {
+              float m = -std::numeric_limits<float>::infinity();
+              for (int kh = 0; kh < Kp; ++kh)
+                for (int kw = 0; kw < Kp; ++kw) {
+                  int64_t ih = oh * stride - pad + kh, iw = ow * stride - pad + kw;
+                  if (ih >= 0 && ih < H && iw >= 0 && iw < W)
+                    m = std::max(m, read_flat(mem_, I, in.core, (c * H + ih) * W + iw));
+                }
+              write_flat(mem_, O, in.core, (c * Ho + oh) * Wo + ow, m);
+            }
+      rec.cycles = vector_cycles(O.numel(), double(Kp * Kp));
+      return;
+    }
+
+    case Opcode::UPSAMPLE: {  // nearest [C,H,W] -> [C,H*f,W*f] ; imm0=factor
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& I = prog_.descriptors[in.args.at(1)];
+      int f = int(in.imm(0, 2));
+      int64_t C = I.dims.at(0), H = I.dims.at(1), W = I.dims.at(2);
+      int64_t Ho = H * f, Wo = W * f;
+      if (functional_)
+        for (int64_t c = 0; c < C; ++c)
+          for (int64_t oh = 0; oh < Ho; ++oh)
+            for (int64_t ow = 0; ow < Wo; ++ow)
+              write_flat(mem_, O, in.core, (c * Ho + oh) * Wo + ow,
+                         read_flat(mem_, I, in.core, (c * H + oh / f) * W + ow / f));
+      rec.cycles = vector_cycles(O.numel());
+      return;
+    }
+
+    case Opcode::CONCAT: {  // concat a,b along channel axis 0
+      const Descriptor& O = prog_.descriptors[in.args.at(0)];
+      const Descriptor& A = prog_.descriptors[in.args.at(1)];
+      const Descriptor& B = prog_.descriptors[in.args.at(2)];
+      int64_t na = A.numel(), nb = B.numel();
+      if (functional_) {
+        for (int64_t i = 0; i < na; ++i) write_flat(mem_, O, in.core, i, read_flat(mem_, A, in.core, i));
+        for (int64_t i = 0; i < nb; ++i) write_flat(mem_, O, in.core, na + i, read_flat(mem_, B, in.core, i));
+      }
+      rec.cycles = vector_cycles(na + nb);
+      return;
+    }
+
     case Opcode::CONV: {  // out[Co,Ho,Wo] = in[Ci,H,W] * w[Co,Ci,Kh,Kw] ; imm0=stride imm1=pad
       const Descriptor& O = prog_.descriptors[in.args.at(0)];
       const Descriptor& I = prog_.descriptors[in.args.at(1)];
