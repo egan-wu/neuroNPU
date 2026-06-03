@@ -18,6 +18,7 @@ class Tensor:
     is_input: bool = False              # runtime input (loaded via --load)
     is_output: bool = False
     is_param: bool = False              # DDR-resident weight with no data (timing-only)
+    dtype: str = "f32"                  # storage dtype: f32 | f16 | bf16 | i8
 
     @property
     def is_weight(self) -> bool:
@@ -50,8 +51,9 @@ class Graph:
 
     # ---- construction helpers ----
     def tensor(self, name, shape, data=None, is_input=False, is_output=False,
-               is_param=False) -> str:
-        t = Tensor(name, tuple(int(s) for s in shape), data, is_input, is_output, is_param)
+               is_param=False, dtype="f32") -> str:
+        t = Tensor(name, tuple(int(s) for s in shape), data, is_input, is_output,
+                   is_param, dtype)
         self.tensors[name] = t
         if is_input and name not in self.inputs:
             self.inputs.append(name)

@@ -104,6 +104,13 @@ if(PYTHON3)
   add_test(NAME trace_analyze
            COMMAND ${PYTHON3} -c "import subprocess,sys; subprocess.run([sys.executable,'-m','compiler.profile_llama','--config-json','tests/llama_tiny_config.json','--neuronpu','$<TARGET_FILE:neuronpu>','--config','configs/default.yaml','--workdir','${CMAKE_BINARY_DIR}/llama_t','--prompt','16','--gen','2','--kv','16','--tile'],check=True); subprocess.run([sys.executable,'-m','compiler.analyze','${CMAKE_BINARY_DIR}/llama_t/prefill'],check=True)"
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME quant_profile
+           COMMAND ${PYTHON3} -m compiler.profile_quant
+                   --config-json ${CMAKE_SOURCE_DIR}/tests/llama_tiny_config.json
+                   --neuronpu $<TARGET_FILE:neuronpu>
+                   --config ${CMAKE_SOURCE_DIR}/configs/default.yaml
+                   --workdir ${CMAKE_BINARY_DIR}/quant --kv 16 --layers 2
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME yolo_block
            COMMAND ${PYTHON3} -c "import numpy as np; from compiler.models import yolo_block; from compiler.driver import validate; g=yolo_block(); x=(np.random.default_rng(2).standard_normal((3,16,16))*0.5).astype(np.float32); ok,_=validate(g,{'x':x},'$<TARGET_FILE:neuronpu>','${CMAKE_SOURCE_DIR}/configs/default.yaml','${CMAKE_BINARY_DIR}/yolo',opt={'reuse':True,'fuse':True}); exit(0 if ok else 1)"
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

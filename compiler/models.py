@@ -4,7 +4,7 @@ import numpy as np
 from .ir import Graph
 
 
-def tiny_llama_layer(S=4, D=8, H=16, seed=0) -> Graph:
+def tiny_llama_layer(S=4, D=8, H=16, seed=0, wdtype="f32") -> Graph:
     """One Llama-style decoder layer (single head) as Graph IR.
 
     RMSNorm -> Q/K/V -> RoPE -> causal attention -> out proj -> residual
@@ -16,7 +16,8 @@ def tiny_llama_layer(S=4, D=8, H=16, seed=0) -> Graph:
     g = Graph("tiny_llama_layer")
 
     def w(name, shape):
-        return g.tensor(name, shape, data=(rng.standard_normal(shape) * 0.1).astype(np.float32))
+        return g.tensor(name, shape, data=(rng.standard_normal(shape) * 0.1).astype(np.float32),
+                        dtype=wdtype)
 
     x = g.tensor("x", (S, D), is_input=True)
     g1, g2 = w("g1", (D,)), w("g2", (D,))
@@ -71,7 +72,8 @@ def yolo_block(Cin=3, HW=16, seed=0) -> Graph:
     return g
 
 
-def llama_from_config(cfg: dict, q_rows: int, kv_rows: int, n_layers=None) -> Graph:
+def llama_from_config(cfg: dict, q_rows: int, kv_rows: int, n_layers=None,
+                      wdtype="f32") -> Graph:
     """Build a real-scale Llama decoder forward pass as Graph IR (no weight data;
     for timing-only profiling).  q_rows==kv_rows => prefill; q_rows==1 & kv_rows>1
     => one decode step attending to a kv_rows-long cache.
@@ -89,8 +91,8 @@ def llama_from_config(cfg: dict, q_rows: int, kv_rows: int, n_layers=None) -> Gr
     decode = (q_rows == 1 and kv_rows > 1)
     g = Graph(f"llama_{'decode' if decode else 'prefill'}")
 
-    def param(name, shape):
-        return g.tensor(name, shape, is_param=True)
+    def param(name, shape, dt=wdtype):
+        return g.tensor(name, shape, is_param=True, dtype=dt)
 
     # token embedding (ids are placeholders; values irrelevant to timing)
     embed = param("embed_tokens", (V, D))

@@ -125,7 +125,7 @@ class Backend:
         t = self.g.tensors[ir_name]
         asm = self._name(ir_name)
         addr = self.ddr.alloc(t.numel * F32)
-        self.decls.append(f".desc {asm} ddr f32 0x{addr:x} {self._dims(t.shape)}")
+        self.decls.append(f".desc {asm} ddr {t.dtype} 0x{addr:x} {self._dims(t.shape)}")
         self.ddr_addr[ir_name] = (asm, addr)
         if t.data is not None:                       # value present (functional)
             self.ddr_data[asm] = t.data.astype(np.float32)
@@ -140,7 +140,7 @@ class Backend:
         s_asm = self._name(ir_name, "_s")
         addr, size, war = self.sram.alloc(t.numel * F32)
         self.sram_alloc[s_asm] = (addr, size)
-        self.decls.append(f".desc {s_asm} sram f32 0x{addr:x} {self._dims(t.shape)}")
+        self.decls.append(f".desc {s_asm} sram {t.dtype} 0x{addr:x} {self._dims(t.shape)}")
         ev = self._new_ev()
         wann = f" @wait {war}" if war is not None else ""   # WAR: wait for prev reader
         self.prog.append(f"DMA.LOAD {s_asm} {ddr_asm}{wann} @sig {ev}")
@@ -369,11 +369,12 @@ class Backend:
                     a_decl[k0] = self._name(a_name, f"_a{uid}_{k0}")
                     self.decls.append(f".desc {a_decl[k0]} sram f32 0x{a_base + k0*F32:x} "
                                       f"{M}x{tk_e} :{K},1")
+                wdt = self.g.tensors[w_ir].dtype             # weight storage dtype (quant)
                 wtd = self._name(w_ir, f"_wd{uid}_{ti}")     # strided DDR slice [tk,tn]
-                self.decls.append(f".desc {wtd} ddr f32 0x{w_base + (k0*N + n0)*F32:x} "
+                self.decls.append(f".desc {wtd} ddr {wdt} 0x{w_base + (k0*N + n0)*F32:x} "
                                   f"{tk_e}x{tn_e} :{N},1")
                 wt = self._name(w_ir, f"_w{uid}_{ti}")       # contiguous SRAM tile
-                self.decls.append(f".desc {wt} sram f32 0x{addr:x} {tk_e}x{tn_e}")
+                self.decls.append(f".desc {wt} sram {wdt} 0x{addr:x} {tk_e}x{tn_e}")
                 war = buf_ev[ti % nbuf]
                 ev_w = self._new_ev()
                 lw = f" @wait {war}" if war is not None else ""
