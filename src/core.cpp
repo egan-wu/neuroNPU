@@ -372,30 +372,36 @@ void Core::exec(const Instr& in, InstrRecord& rec, RunResult& out) {
       const Descriptor& W = prog_.descriptors[in.args.at(2)];
       int stride = int(in.imm(0, 1.0));
       int pad = int(in.imm(1, 0.0));
+      int group = int(in.imm(2, 1.0));               // grouped / depthwise conv
       int64_t Ci = I.dims.at(0), H = I.dims.at(1), Wd = I.dims.at(2);
-      int64_t Co = W.dims.at(0), Kh = W.dims.at(2), Kw = W.dims.at(3);
+      int64_t Co = W.dims.at(0), Cw = W.dims.at(1), Kh = W.dims.at(2), Kw = W.dims.at(3);
       int64_t Ho = O.dims.at(1), Wo = O.dims.at(2);
-      if (W.dims.at(1) != Ci || O.dims.at(0) != Co)
-        throw std::runtime_error("CONV channel mismatch for output " + O.name);
-      if (Ho != (H + 2 * pad - Kh) / stride + 1 || Wo != (Wd + 2 * pad - Kw) / stride + 1)
-        throw std::runtime_error("CONV output shape mismatch for " + O.name);
+      int64_t Co_g = Co / group;                     // output channels per group
+      if (functional_) {                             // shape checks only matter for compute
+        if (Cw * group != Ci || O.dims.at(0) != Co)
+          throw std::runtime_error("CONV channel mismatch for output " + O.name);
+        if (Ho != (H + 2 * pad - Kh) / stride + 1 || Wo != (Wd + 2 * pad - Kw) / stride + 1)
+          throw std::runtime_error("CONV output shape mismatch for " + O.name);
+      }
       if (functional_)
-       for (int64_t co = 0; co < Co; ++co)
+       for (int64_t co = 0; co < Co; ++co) {
+        int64_t gbase = (co / Co_g) * Cw;              // first input channel of this group
         for (int64_t oh = 0; oh < Ho; ++oh)
           for (int64_t ow = 0; ow < Wo; ++ow) {
             float acc = 0.f;
-            for (int64_t ci = 0; ci < Ci; ++ci)
+            for (int64_t cw = 0; cw < Cw; ++cw)
               for (int64_t kh = 0; kh < Kh; ++kh)
                 for (int64_t kw = 0; kw < Kw; ++kw) {
                   int64_t ih = oh * stride - pad + kh, iw = ow * stride - pad + kw;
                   if (ih < 0 || ih >= H || iw < 0 || iw >= Wd) continue;  // zero pad
-                  float x = read_flat(mem_, I, in.core, (ci * H + ih) * Wd + iw);
-                  float wv = read_flat(mem_, W, in.core, ((co * Ci + ci) * Kh + kh) * Kw + kw);
+                  float x = read_flat(mem_, I, in.core, ((gbase + cw) * H + ih) * Wd + iw);
+                  float wv = read_flat(mem_, W, in.core, ((co * Cw + cw) * Kh + kh) * Kw + kw);
                   acc += x * wv;
                 }
             write_flat(mem_, O, in.core, (co * Ho + oh) * Wo + ow, acc);
           }
-      rec.macs = double(Co) * Ho * Wo * Ci * Kh * Kw;
+       }
+      rec.macs = double(Co) * Ho * Wo * Cw * Kh * Kw;
       rec.cycles = rec.macs / cfg_.te_peak_macs_per_cycle() + double(cfg_.mac_rows + cfg_.mac_cols);
       out.total_macs += rec.macs;
       return;

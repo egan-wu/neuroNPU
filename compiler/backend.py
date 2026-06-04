@@ -80,6 +80,14 @@ class Backend:
         self.cur_i = -1
         self.scopes = []         # per-instruction scope label (layer/op-kind)
         self.cur_scope = "global"
+        # concat elision: a concat input is written directly into the output's slice
+        self.concat_slot = {}    # input tensor -> (concat-output tensor, channel offset)
+        self.concat_buf = {}     # concat-output tensor -> base addr of its full buffer
+        for op in self.g.ops:
+            if op.kind == "concat":
+                a, b = op.inputs
+                self.concat_slot[a] = (op.outputs[0], 0)
+                self.concat_slot[b] = (op.outputs[0], int(self.g.tensors[a].shape[0]))
         self.last_use = self._compute_last_use()
         self.san = {}            # ir name -> asm identifier
         self.decls = []          # .desc / .data lines
@@ -101,7 +109,7 @@ class Backend:
         # take_last (view) and matmul_acc (in-place) alias their first input's
         # buffer, so that input must live as long as the output.
         for op in self.g.ops:
-            if op.kind in ("take_last", "matmul_acc"):
+            if op.kind in ("take_last", "matmul_acc", "slice"):
                 src, dst = op.inputs[0], op.outputs[0]
                 lu[src] = max(lu.get(src, -1), lu.get(dst, -1))
         return lu
@@ -149,10 +157,44 @@ class Backend:
         self.sram_of[ir_name] = s_asm
         return s_asm
 
+    def _plane(self, ir_name):
+        p = 1
+        for d in self.g.tensors[ir_name].shape[1:]:
+            p *= int(d)
+        return p
+
+    def _concat_resolve(self, t):
+        off, cur = 0, t
+        while cur in self.concat_slot:
+            buf, o = self.concat_slot[cur]; off += o; cur = buf
+        return cur, off
+
+    def _concat_addr(self, final):
+        """Allocate the full buffer for a concat output once."""
+        if final not in self.concat_buf:
+            t = self.g.tensors[final]
+            addr, size, _ = self.sram.alloc(t.numel * F32)
+            asm = self._name(final)
+            self.sram_alloc[asm] = (addr, size)
+            self.decls.append(f".desc {asm} sram {t.dtype} 0x{addr:x} {self._dims(t.shape)}")
+            self.sram_of[final] = asm
+            self.concat_buf[final] = addr
+        return self.concat_buf[final]
+
     def _activation(self, ir_name):
         """Declare/alloc an SRAM descriptor for an op's activation output."""
         if ir_name in self.sram_of:
             return self.sram_of[ir_name]
+        # concat input: write straight into a slice of the concat output buffer (elision)
+        if ir_name in self.concat_slot:
+            final, off = self._concat_resolve(ir_name)
+            base = self._concat_addr(final)
+            t = self.g.tensors[ir_name]
+            s_asm = self._name(ir_name)
+            self.decls.append(f".desc {s_asm} sram {t.dtype} "
+                              f"0x{base + off * self._plane(final) * F32:x} {self._dims(t.shape)}")
+            self.sram_of[ir_name] = s_asm
+            return s_asm
         t = self.g.tensors[ir_name]
         s_asm = self._name(ir_name)
         addr, size, war = self.sram.alloc(t.numel * F32)
@@ -250,6 +292,21 @@ class Backend:
         return text
 
     def _lower(self, op):
+        # slice: channel slice [c0:c1] of [C,H,W] -> contiguous offset view (no instr).
+        if op.kind == "slice":
+            base = self._stage_or_act(op.inputs[0])
+            it = self.g.tensors[op.inputs[0]]
+            plane = 1
+            for d in it.shape[1:]:
+                plane *= int(d)
+            c0 = op.attrs["c0"]
+            v = self._name(op.outputs[0])
+            self.decls.append(f".desc {v} sram {it.dtype} 0x{self._addr_of(base) + c0*plane*F32:x} "
+                              f"{self._dims(self.g.tensors[op.outputs[0]].shape)}")
+            self.sram_of[op.outputs[0]] = v
+            self.ready[v] = self.ready.get(base, (None, "VECTOR"))
+            return
+
         # take_last: a zero-cost view of the input's last row (no instruction).
         if op.kind == "take_last":
             base = self._stage_or_act(op.inputs[0])
@@ -286,6 +343,26 @@ class Backend:
             self.prog.append(f"MATMUL {xb} {ab} {wb} accum{ann}")
             self.ready[xb] = (ev, "TENSOR")
             self.op_sig[self.cur_i] = ev
+            return
+
+        # concat: elided — inputs already wrote into the output buffer's slices.
+        if op.kind == "concat":
+            outn = op.outputs[0]
+            final, off = self._concat_resolve(outn)
+            base = self._concat_addr(final)
+            if outn not in self.sram_of:
+                t = self.g.tensors[outn]
+                asm = self._name(outn)
+                self.decls.append(f".desc {asm} sram {t.dtype} "
+                                  f"0x{base + off * self._plane(final) * F32:x} {self._dims(t.shape)}")
+                self.sram_of[outn] = asm
+            evs = [self.ready.get(self.sram_of.get(i)) for i in op.inputs]
+            evs = [e for e in evs if e and e[0] is not None]
+            ev = max((e[0] for e in evs), default=None)
+            eng2 = next((e[1] for e in evs if e[0] == ev), "VECTOR")
+            self.ready[self.sram_of[outn]] = (ev, eng2)
+            if ev is not None:
+                self.op_sig[self.cur_i] = ev
             return
 
         eng = _engine(op.kind)
@@ -402,7 +479,7 @@ class Backend:
             q = a.get("q_offset")
             return f" $1" + (f" ${q}" if q is not None else "")
         if op.kind == "conv":
-            return f" ${a.get('stride', 1)} ${a.get('pad', 0)}"
+            return f" ${a.get('stride', 1)} ${a.get('pad', 0)} ${a.get('group', 1)}"
         if op.kind == "maxpool":
             return f" ${a.get('kernel', 2)} ${a.get('stride', a.get('kernel', 2))} ${a.get('pad', 0)}"
         if op.kind == "upsample":

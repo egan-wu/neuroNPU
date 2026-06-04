@@ -27,16 +27,19 @@ def _rope(x, base, pos_offset):
     return out
 
 
-def _conv2d(x, w, stride, pad):                     # x[Ci,H,W], w[Co,Ci,Kh,Kw]
+def _conv2d(x, w, stride, pad, group=1):             # x[Ci,H,W], w[Co,Ci/g,Kh,Kw]
     Ci, H, W = x.shape
-    Co, _, Kh, Kw = w.shape
+    Co, Cw, Kh, Kw = w.shape
     Ho, Wo = (H + 2 * pad - Kh) // stride + 1, (W + 2 * pad - Kw) // stride + 1
     xp = np.pad(x, ((0, 0), (pad, pad), (pad, pad)))
     out = np.zeros((Co, Ho, Wo), np.float32)
+    Co_g = Co // group
     for oh in range(Ho):
         for ow in range(Wo):
-            patch = xp[:, oh * stride:oh * stride + Kh, ow * stride:ow * stride + Kw]
-            out[:, oh, ow] = np.tensordot(w, patch, axes=([1, 2, 3], [0, 1, 2]))
+            for co in range(Co):
+                gb = (co // Co_g) * Cw
+                patch = xp[gb:gb + Cw, oh * stride:oh * stride + Kh, ow * stride:ow * stride + Kw]
+                out[co, oh, ow] = np.sum(w[co] * patch)
     return out
 
 
@@ -113,7 +116,10 @@ def execute(g: Graph, inputs: dict) -> dict:
         elif k == "take_last":                      # last row -> [1, D]
             r = a[-1:, :]
         elif k == "conv":
-            r = _conv2d(a, ins[1], op.attrs.get("stride", 1), op.attrs.get("pad", 0))
+            r = _conv2d(a, ins[1], op.attrs.get("stride", 1), op.attrs.get("pad", 0),
+                        op.attrs.get("group", 1))
+        elif k == "slice":
+            r = a[op.attrs["c0"]:op.attrs["c1"]]
         elif k == "maxpool":
             r = _maxpool(a, op.attrs.get("kernel", 2), op.attrs.get("stride"),
                          op.attrs.get("pad", 0))
