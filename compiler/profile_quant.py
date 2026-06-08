@@ -6,11 +6,7 @@ the memory-bandwidth (and therefore TPS) impact of quantization.
 from __future__ import annotations
 import argparse, json
 from .models import llama_from_config
-from .driver import compile_and_run
-
-
-def _bytes(p):
-    return p["ddr_achieved_gbps"] * p["total_time_ns"]
+from . import api
 
 
 def main():
@@ -31,13 +27,12 @@ def main():
     base = None
     for dt in ("f32", "f16", "i8"):
         g = llama_from_config(cfg, 1, a.kv, L, wdtype=dt)
-        _, p = compile_and_run(g, {}, a.neuronpu, a.config, a.workdir,
-                               timing_only=True, out_dir=f"{a.workdir}/{dt}", opt=opt)
-        tps = 1e9 / p["total_time_ns"]
-        base = base or tps
-        vb = "MEM" if p["memory_bound"] else "CMP"
-        print(f"  {dt:<8}{p['total_time_ns']/1e3:>11.1f}us{_bytes(p)/1e6:>10.0f}MB"
-              f"{tps:>10.1f}{vb:>8}   {tps/base:.2f}x")
+        p = api.compile(g, opt=opt, neuronpu=a.neuronpu, config=a.config,
+                        workdir=a.workdir).profile(name=dt)
+        base = base or p.tps
+        vb = "MEM" if p.memory_bound else "CMP"
+        print(f"  {dt:<8}{p.time_us:>11.1f}us{p.ddr_bytes/1e6:>10.0f}MB"
+              f"{p.tps:>10.1f}{vb:>8}   {p.tps/base:.2f}x")
     print("\n  int8 weights cut DDR traffic ~4x and fp16 ~2x; since decode is "
           "memory-bound,\n  TPS scales almost directly with the weight-bandwidth "
           "reduction.")

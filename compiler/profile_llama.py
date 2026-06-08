@@ -9,21 +9,16 @@ on the simulator in timing-only mode, and reports LLM-level metrics.
 from __future__ import annotations
 import argparse, json
 from .models import llama_from_config
-from .driver import compile_and_run
+from . import api
 
 
-def _bytes(perf):
-    return perf["ddr_achieved_gbps"] * perf["total_time_ns"]   # GB/s * ns = bytes
-
-
-def _row(tag, perf):
-    vb = "MEM " if perf["memory_bound"] else "CMP "
-    sram = perf.get("compile_stats", {}).get("peak_sram_bytes", 0) / 1e6
-    return (f"  {tag:<13}{perf['total_time_ns']/1e3:>10.1f}us"
-            f"{perf['total_gmacs']:>9.2f}{perf['te_util']*100:>8.1f}%"
-            f"{perf['ddr_bw_util']*100:>8.1f}%{_bytes(perf)/1e6:>9.0f}MB"
-            f"{perf['arithmetic_intensity']:>8.2f}{vb:>6}"
-            f"{perf['energy_total_nj']/1e6:>8.2f}mJ{sram:>8.0f}MB")
+def _row(tag, p):
+    vb = "MEM " if p.memory_bound else "CMP "
+    return (f"  {tag:<13}{p.time_us:>10.1f}us"
+            f"{p.gmacs:>9.2f}{p.te_util*100:>8.1f}%"
+            f"{p.ddr_bw_util*100:>8.1f}%{p.ddr_bytes/1e6:>9.0f}MB"
+            f"{p.arithmetic_intensity:>8.2f}{vb:>6}"
+            f"{p.energy_nj/1e6:>8.2f}mJ{p.peak_sram_bytes/1e6:>8.0f}MB")
 
 
 def main():
@@ -52,10 +47,10 @@ def main():
            "tile_budget": a.tile_budget, "nbuf": a.nbuf}
 
     def run(name, g):
-        _, perf = compile_and_run(g, {}, a.neuronpu, a.config, a.workdir,
-                                  timing_only=True, out_dir=a.workdir + "/" + name, opt=opt)
-        print(_row(name, perf))
-        return perf
+        p = api.compile(g, opt=opt, neuronpu=a.neuronpu, config=a.config,
+                        workdir=a.workdir).profile(name=name)
+        print(_row(name, p))
+        return p
 
     pf = run("prefill", llama_from_config(cfg, a.prompt, a.prompt, L))
     decs = {}
@@ -63,18 +58,15 @@ def main():
         decs[kv] = run(f"decode kv={kv}", llama_from_config(cfg, 1, kv, L))
 
     print("\n  --- LLM-level metrics (config: %s) ---" % a.config)
-    ttft = pf["total_time_ns"] / 1e6
-    print(f"  TTFT (prefill {a.prompt} tok) : {ttft:9.3f} ms   "
-          f"({'compute' if not pf['memory_bound'] else 'memory'}-bound)")
+    print(f"  TTFT (prefill {a.prompt} tok) : {pf.time_ns/1e6:9.3f} ms   "
+          f"({pf.bound}-bound)")
     for kv, p in decs.items():
-        tps = 1e9 / p["total_time_ns"]
-        print(f"  TPS @ context {kv:<5}      : {tps:9.1f} tok/s   "
-              f"({p['total_time_ns']/1e3:.1f} us/token, "
-              f"{'memory' if p['memory_bound'] else 'compute'}-bound)")
+        print(f"  TPS @ context {kv:<5}      : {p.tps:9.1f} tok/s   "
+              f"({p.time_us:.1f} us/token, {p.bound}-bound)")
     base = decs[a.kv[0]]
-    tot = (pf["total_time_ns"] + a.gen * base["total_time_ns"]) / 1e6
+    tot = (pf.time_ns + a.gen * base.time_ns) / 1e6
     print(f"  end-to-end {a.prompt}+{a.gen} tok   : {tot:9.3f} ms")
-    print(f"  weights streamed / token   : {_bytes(base)/1e6:9.0f} MB (decode kv={a.kv[0]})")
+    print(f"  weights streamed / token   : {base.ddr_bytes/1e6:9.0f} MB (decode kv={a.kv[0]})")
 
 
 if __name__ == "__main__":
