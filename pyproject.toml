@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neuronpu"
+version = "0.1.0"
+description = "NeuroNPU offline compiler + cycle-approximate NPU simulator SDK"
+requires-python = ">=3.9"
+dependencies = ["numpy", "onnx"]
+
+[project.optional-dependencies]
+hub = ["huggingface_hub", "onnxruntime"]
+
+[project.scripts]
+neuronpu = "compiler.cli:main"
+
+[tool.setuptools]
+packages = ["compiler"]

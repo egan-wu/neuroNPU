@@ -120,6 +120,9 @@ if(PYTHON3)
   add_test(NAME sdk_api
            COMMAND ${PYTHON3} -c "import numpy as np; import compiler.api as npu; from compiler.models import tiny_llama_layer; g=tiny_llama_layer(4,8,16); x=(np.random.default_rng(1).standard_normal((4,8))*0.5).astype(np.float32); m=npu.compile(g,opt='O1',neuronpu='$<TARGET_FILE:neuronpu>',config='${CMAKE_SOURCE_DIR}/configs/default.yaml',workdir='${CMAKE_BINARY_DIR}/sdk'); assert m.validate({'x':x}); p=m.profile(); m.save('${CMAKE_BINARY_DIR}/sdk/tiny.npubin'); a=npu.load('${CMAKE_BINARY_DIR}/sdk/tiny.npubin'); assert a.meta['name']==g.name; assert abs(a.profile(out_dir='${CMAKE_BINARY_DIR}/sdk/ld').time_ns-p.time_ns)<1; mq=npu.compile(g,opt='O0',quant=npu.Int8({'x':x}),neuronpu='$<TARGET_FILE:neuronpu>',config='${CMAKE_SOURCE_DIR}/configs/default.yaml',workdir='${CMAKE_BINARY_DIR}/sdkq'); assert mq.validate({'x':x}); print('SDK API OK')"
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME cli_tool
+           COMMAND ${PYTHON3} -c "import subprocess,sys; import compiler.api as npu; from compiler.models import tiny_llama_layer; g=tiny_llama_layer(4,8,16); npu.compile(g,opt='O1',neuronpu='$<TARGET_FILE:neuronpu>',config='${CMAKE_SOURCE_DIR}/configs/default.yaml',workdir='${CMAKE_BINARY_DIR}/cli').save('${CMAKE_BINARY_DIR}/cli/m.npubin'); subprocess.run([sys.executable,'-m','compiler.cli','profile','${CMAKE_BINARY_DIR}/cli/m.npubin','--neuronpu','$<TARGET_FILE:neuronpu>','--config','${CMAKE_SOURCE_DIR}/configs/default.yaml','--workdir','${CMAKE_BINARY_DIR}/cli'],check=True); subprocess.run([sys.executable,'-m','compiler.cli','--version'],check=True)"
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llm_demo
            COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
                    --neuronpu $<TARGET_FILE:neuronpu>
