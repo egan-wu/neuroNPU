@@ -144,18 +144,28 @@ static int cmd_asm(int argc, char** argv) {
   return 0;
 }
 
+static int cmd_meta(int argc, char** argv) {
+  if (argc < 1) { std::fprintf(stderr, "usage: neuronpu meta <prog.npubin>\n"); return 2; }
+  Program prog = read_binary(argv[0]);
+  for (const auto& kv : prog.meta)
+    std::printf("%s\t%s\n", kv.first.c_str(), kv.second.c_str());
+  return 0;
+}
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     std::fprintf(stderr,
         "NeuroNPU simulator\n"
-        "  neuronpu run <prog.npuasm|.npubin> [--config cfg.yaml] [--out dir]\n"
-        "  neuronpu asm <prog.npuasm> <out.npubin>\n");
+        "  neuronpu run  <prog.npuasm|.npubin> [--config cfg.yaml] [--out dir]\n"
+        "  neuronpu asm  <prog.npuasm> <out.npubin>\n"
+        "  neuronpu meta <prog.npubin>           # print provenance header\n");
     return 2;
   }
   try {
     std::string sub = argv[1];
     if (sub == "run") return cmd_run(argc - 2, argv + 2);
     if (sub == "asm") return cmd_asm(argc - 2, argv + 2);
+    if (sub == "meta") return cmd_meta(argc - 2, argv + 2);
     std::fprintf(stderr, "unknown subcommand: %s\n", sub.c_str());
     return 2;
   } catch (const std::exception& e) {

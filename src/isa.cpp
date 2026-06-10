@@ -191,6 +191,13 @@ Program assemble(const std::string& text) {
       p.descriptors.push_back(std::move(d));
       continue;
     }
+    if (tok[0] == ".meta") {
+      if (tok.size() < 2) err(".meta KEY [VALUE...]");
+      std::string val;
+      for (size_t t = 2; t < tok.size(); ++t) { if (t > 2) val += " "; val += tok[t]; }
+      p.meta.emplace_back(tok[1], val);
+      continue;
+    }
     if (tok[0] == ".data") {
       if (tok.size() < 3) err(".data NAME iota|zeros|const V|rand SEED");
       int id = p.descriptor_id(tok[1]);
@@ -363,7 +370,10 @@ static std::string get_str(std::istream& i) {
 void write_binary(const Program& p, const std::string& path) {
   std::ofstream o(path, std::ios::binary);
   if (!o) throw std::runtime_error("cannot write binary: " + path);
-  o.write("NPUB", 4); put<uint32_t>(o, 5u);
+  o.write("NPUB", 4); put<uint32_t>(o, 6u);
+
+  put<uint32_t>(o, uint32_t(p.meta.size()));            // provenance header
+  for (const auto& kv : p.meta) { put_str(o, kv.first); put_str(o, kv.second); }
 
   put<uint32_t>(o, uint32_t(p.descriptors.size()));
   for (const auto& d : p.descriptors) {
@@ -406,9 +416,14 @@ Program read_binary(const std::string& path) {
   char magic[4]; in.read(magic, 4);
   if (std::memcmp(magic, "NPUB", 4) != 0) throw std::runtime_error("bad magic in " + path);
   uint32_t ver = get<uint32_t>(in);
-  if (ver != 5) throw std::runtime_error("unsupported .npubin version (expected 5)");
+  if (ver != 6) throw std::runtime_error("unsupported .npubin version (expected 6)");
 
   Program p;
+  uint32_t nm = get<uint32_t>(in);                     // provenance header
+  for (uint32_t k = 0; k < nm; ++k) {
+    std::string key = get_str(in), val = get_str(in);
+    p.meta.emplace_back(std::move(key), std::move(val));
+  }
   uint32_t nd = get<uint32_t>(in);
   for (uint32_t k = 0; k < nd; ++k) {
     Descriptor d;

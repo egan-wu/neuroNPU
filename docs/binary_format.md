@@ -1,4 +1,4 @@
-# NeuroNPU — `.npubin` Binary Format (v5)
+# NeuroNPU — `.npubin` Binary Format (v6)
 
 The stable, machine-emitted form of a program. All integers are **little-endian**.
 Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_binary`).
@@ -6,7 +6,17 @@ Encoder/decoder: [`../src/isa.cpp`](../src/isa.cpp) (`write_binary` / `read_bina
 ```
 Header
   char[4]   magic      = "NPUB"
-  u32       version    = 5
+  u32       version    = 6
+
+Provenance header (v6+)
+  u32       num_meta
+  repeat:
+    u16     key_len
+    char[key_len]   key
+    u16     val_len
+    char[val_len]   value
+  ; emitted from `.meta KEY VALUE` directives (SDK provenance: sdk_version,
+  ; name, opt level, quant, n_ops, npu_config). Dump with `neuronpu meta <bin>`.
 
 Descriptor table
   u32       num_descriptors

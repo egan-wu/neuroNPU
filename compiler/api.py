@@ -181,12 +181,19 @@ class Model:
     def n_ops(self) -> int:
         return len(self._graph.ops)
 
+    def _provenance(self) -> dict:
+        """Short key/value pairs embedded into the .npubin header."""
+        flags = "+".join(k for k, v in sorted(self.opt.items()) if v) or "none"
+        return {"sdk_version": SDK_VERSION, "name": self.name, "opt": flags,
+                "quant": "int8" if self.quant else "none",
+                "n_ops": self.n_ops, "npu_config": os.path.basename(self.config)}
+
     def profile(self, name: str = "run") -> Profile:
         """Run the simulator in timing-only mode and return metrics."""
         _, perf = compile_and_run(self._lowered_graph(), {}, self.neuronpu,
                                   self.config, self.workdir, timing_only=True,
                                   out_dir=os.path.join(self.workdir, name),
-                                  opt=self.opt)
+                                  opt=self.opt, meta=self._provenance())
         self._last = Profile.from_perf(perf)
         return self._last
 
@@ -195,7 +202,7 @@ class Model:
         outputs, perf = compile_and_run(self._lowered_graph(), inputs, self.neuronpu,
                                         self.config, self.workdir, timing_only=False,
                                         out_dir=os.path.join(self.workdir, name),
-                                        opt=self.opt)
+                                        opt=self.opt, meta=self._provenance())
         self._last = Profile.from_perf(perf)
         return outputs
 
@@ -270,14 +277,32 @@ class Artifact:
             return Profile.from_perf(json.load(f))
 
 
+def _read_binary_meta(npubin: str, neuronpu: str) -> dict:
+    """Read the in-band provenance header embedded in the .npubin (v6)."""
+    import subprocess
+    try:
+        out = subprocess.run([neuronpu, "meta", npubin], check=True,
+                             capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+    meta = {}
+    for line in out.splitlines():
+        if "\t" in line:
+            k, v = line.split("\t", 1)
+            meta[k] = v
+    return meta
+
+
 def load(path: str, *, neuronpu: str = DEFAULT_NEURONPU,
          config: str = DEFAULT_CONFIG) -> Artifact:
-    """Load a saved .npubin artifact (+ sidecar metadata if present)."""
-    meta = {}
+    """Load a saved .npubin artifact. Provenance comes from the in-band binary
+    header (v6); the `<path>.meta.json` sidecar (richer profile stats) is merged
+    in if present."""
+    meta = _read_binary_meta(path, neuronpu)
     meta_path = path + ".meta.json"
     if os.path.exists(meta_path):
         with open(meta_path) as f:
-            meta = json.load(f)
+            meta = {**meta, **json.load(f)}            # sidecar overrides/extends
     return Artifact(npubin=path, meta=meta, neuronpu=neuronpu, config=config)
 
 

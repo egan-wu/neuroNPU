@@ -12,8 +12,19 @@ def _save_npy(path, arr):
     np.save(path, np.asarray(arr, dtype=np.float32).ravel())
 
 
+def _meta_lines(meta: dict) -> str:
+    """Serialize a provenance dict into `.meta KEY VALUE` directives. Values are
+    sanitized (comment chars / newlines stripped) so they survive the assembler."""
+    out = []
+    for k, v in meta.items():
+        s = str(v).replace("#", "").replace(";", "").replace("\n", " ").strip()
+        out.append(f".meta {k} {s}")
+    return "\n".join(out) + ("\n" if out else "")
+
+
 def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
-                    workdir: str, timing_only=False, out_dir=None, opt=None):
+                    workdir: str, timing_only=False, out_dir=None, opt=None,
+                    meta=None):
     os.makedirs(workdir, exist_ok=True)
     out_dir = out_dir or os.path.join(workdir, "logs")
     g = passes.apply(g, opt or {})                 # IR optimization passes (fusion, ...)
@@ -21,6 +32,8 @@ def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
     asm_path = os.path.join(workdir, "model.npuasm")
     bin_path = os.path.join(workdir, "model.npubin")
     with open(asm_path, "w") as f:
+        if meta:
+            f.write(_meta_lines(meta))
         f.write(text)
     subprocess.run([neuronpu, "asm", asm_path, bin_path], check=True,
                    stdout=subprocess.DEVNULL)

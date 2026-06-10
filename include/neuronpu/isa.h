@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "neuronpu/types.h"
@@ -87,6 +88,9 @@ struct Program {
   std::vector<Instr>      instrs;
   // Initial bytes preloaded into a descriptor's memory before the run.
   std::map<int, std::vector<uint8_t>> init_data;  // descriptor id -> bytes
+  // Provenance metadata (compiler version, source, opt level, ...) carried in
+  // the binary header via the `.meta KEY VALUE` directive. Order-preserving.
+  std::vector<std::pair<std::string, std::string>> meta;
 
   int descriptor_id(const std::string& name) const;  // -1 if absent
 };
