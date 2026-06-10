@@ -100,6 +100,43 @@ reporting per-phase MAC/DDR utilization, roofline, energy, **TTFT**, and a
 prefill **compute-bound** (~93% MAC util) and decode **memory-bound** (~5.4 GB
 weights streamed per token), exactly as expected.
 
+## SDK (compile → profile → deploy)
+
+A stable user-facing surface wraps the compiler + simulator so you take a model
+through the whole flow without touching the IR/backend internals.
+
+**Python API** ([`compiler/api.py`](compiler/api.py)) — named opt levels
+(`O0`/`O1`/`O2`), `Int8(calib)` quantization, a typed `Profile` result, and
+`.npubin` artifacts with embedded provenance:
+
+```python
+import compiler.api as npu
+model = npu.compile("yolov10n.onnx", opt=npu.O2)   # a Graph or an .onnx path
+print(model.profile().summary())                   # timing-only metrics
+out = model.run({"x": x})                           # functional execution
+model.save("model.npubin")                          # artifact + provenance header
+```
+
+**CLI** ([`compiler/cli.py`](compiler/cli.py), installs as `neuronpu` via
+`pip install -e .`):
+
+```sh
+neuronpu compile model.onnx -o model.npubin --opt O2
+neuronpu profile model.npubin            # re-profile a saved artifact
+neuronpu meta    model.npubin            # dump the provenance header (v6)
+```
+
+**C runtime** ([`include/neuronpu/runtime.h`](include/neuronpu/runtime.h),
+[`examples/runtime_demo.c`](examples/runtime_demo.c)) — a deployment-side host
+app links `libneuronpu_core`, opens an artifact, and profiles or runs it:
+
+```c
+npu_model* m = npu_open("model.npubin", "configs/default.yaml");
+npu_profile p; npu_profile_run(m, &p);
+npu_set_input(m, "x", xbuf, n); npu_run(m); npu_get_output(m, "y_out", ybuf, n);
+npu_close(m);
+```
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — engines, execution model, timing model.

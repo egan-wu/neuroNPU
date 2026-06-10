@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(neuronpu CXX)
+project(neuronpu C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,11 +15,17 @@ add_library(neuronpu_core
   src/memory.cpp
   src/logger.cpp
   src/perf.cpp
-  src/core.cpp)
+  src/core.cpp
+  src/runtime.cpp)
 target_include_directories(neuronpu_core PUBLIC include)
 
 add_executable(neuronpu src/main.cpp)
 target_link_libraries(neuronpu PRIVATE neuronpu_core)
+
+# Example host app using the C runtime API (deployment-side).
+add_executable(runtime_demo examples/runtime_demo.c)
+target_link_libraries(runtime_demo PRIVATE neuronpu_core)
+set_target_properties(runtime_demo PROPERTIES LINKER_LANGUAGE CXX)  # C app, C++ lib
 
 enable_testing()
 add_test(NAME matmul_slice
@@ -122,6 +128,9 @@ if(PYTHON3)
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME cli_tool
            COMMAND ${PYTHON3} -c "import subprocess,sys; import compiler.api as npu; from compiler.models import tiny_llama_layer; g=tiny_llama_layer(4,8,16); npu.compile(g,opt='O1',neuronpu='$<TARGET_FILE:neuronpu>',config='${CMAKE_SOURCE_DIR}/configs/default.yaml',workdir='${CMAKE_BINARY_DIR}/cli').save('${CMAKE_BINARY_DIR}/cli/m.npubin'); subprocess.run([sys.executable,'-m','compiler.cli','profile','${CMAKE_BINARY_DIR}/cli/m.npubin','--neuronpu','$<TARGET_FILE:neuronpu>','--config','${CMAKE_SOURCE_DIR}/configs/default.yaml','--workdir','${CMAKE_BINARY_DIR}/cli'],check=True); subprocess.run([sys.executable,'-m','compiler.cli','--version'],check=True)"
+           WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  add_test(NAME runtime_api
+           COMMAND ${PYTHON3} -c "import numpy as np,subprocess,re,compiler.api as npu; from compiler.ir import Graph; g=Graph('rtapi'); g.tensor('x',(4,8),is_input=True); g.add('silu',['x'],'y',(4,8)); g.mark_output('y'); m=npu.compile(g,opt='O0',neuronpu='$<TARGET_FILE:neuronpu>',config='${CMAKE_SOURCE_DIR}/configs/default.yaml',workdir='${CMAKE_BINARY_DIR}/rtapi'); x=(0.1*(np.arange(32)%7)).reshape(4,8).astype('float32'); exp=m.run({'x':x})['y'].ravel(); m.save('${CMAKE_BINARY_DIR}/rtapi/m.npubin'); out=subprocess.run(['$<TARGET_FILE:runtime_demo>','${CMAKE_BINARY_DIR}/rtapi/m.npubin','${CMAKE_SOURCE_DIR}/configs/default.yaml'],capture_output=True,text=True,check=True).stdout; assert 'name=rtapi' in out, out; nums=[float(v) for v in re.search(r'y.0..3. =([^(]*)',out).group(1).split()]; assert np.allclose(nums,exp[:4],atol=1e-4), (nums,exp[:4]); print('RUNTIME API OK')"
            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   add_test(NAME llm_demo
            COMMAND ${PYTHON3} ${CMAKE_SOURCE_DIR}/tools/llm_demo.py
