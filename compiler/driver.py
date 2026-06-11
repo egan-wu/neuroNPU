@@ -22,6 +22,32 @@ def _meta_lines(meta: dict) -> str:
     return "\n".join(out) + ("\n" if out else "")
 
 
+def build_artifact(g: Graph, neuronpu: str, workdir: str, opt=None, meta=None) -> str:
+    """Compile `g` into a self-contained .npubin with weights baked into the
+    binary (via `.npy` directives -> init_data). The resulting artifact runs
+    standalone on the simulator / C runtime without external --load files; the
+    host only supplies runtime inputs. Returns the .npubin path."""
+    os.makedirs(workdir, exist_ok=True)
+    g = passes.apply(g, opt or {})
+    text, ddr_data, in_descs, out_descs, stats = compile_graph(g, opt)
+    npy_lines = []
+    for asm_name, arr in ddr_data.items():             # bake weights into the binary
+        p = os.path.abspath(os.path.join(workdir, asm_name + ".npy"))
+        _save_npy(p, arr)
+        npy_lines.append(f".npy {asm_name} {p}")
+    asm_path = os.path.join(workdir, "model.npubin.npuasm")
+    bin_path = os.path.join(workdir, "model.npubin")
+    with open(asm_path, "w") as f:
+        if meta:
+            f.write(_meta_lines(meta))
+        f.write(text)
+        if npy_lines:                                  # after .desc declarations
+            f.write("\n" + "\n".join(npy_lines) + "\n")
+    subprocess.run([neuronpu, "asm", asm_path, bin_path], check=True,
+                   stdout=subprocess.DEVNULL)
+    return bin_path
+
+
 def compile_and_run(g: Graph, inputs: dict, neuronpu: str, config: str,
                     workdir: str, timing_only=False, out_dir=None, opt=None,
                     meta=None):

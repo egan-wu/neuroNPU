@@ -244,15 +244,22 @@ class Model:
             }
         return m
 
-    def save(self, path: str) -> str:
+    def save(self, path: str, embed: bool = True) -> str:
         """Write the compiled artifact (.npubin) and a `<path>.meta.json`
-        sidecar with provenance. Compiles first if not already done."""
+        sidecar with provenance. With `embed=True` (default) the weights are
+        baked into the binary so it runs standalone (no external --load files);
+        the host only supplies runtime inputs. Compiles first if needed."""
+        from .driver import build_artifact
         if self._last is None:
             self.profile(name="save")
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        shutil.copy(self.npubin, path)
-        meta_path = path + ".meta.json"
-        with open(meta_path, "w") as f:
+        if embed:
+            bin_path = build_artifact(self._lowered_graph(), self.neuronpu,
+                                      self.workdir, opt=self.opt, meta=self._provenance())
+            shutil.copy(bin_path, path)
+        else:
+            shutil.copy(self.npubin, path)
+        with open(path + ".meta.json", "w") as f:
             json.dump(self._metadata(), f, indent=2)
         return path
 

@@ -156,6 +156,33 @@ static void fill_init(Program& p, int id, const std::string& mode, const std::st
   p.init_data[id] = std::move(buf);
 }
 
+// Minimal little-endian float32 .npy reader (C order). Used by the `.npy`
+// directive to bake weights into the binary's init_data.
+static std::vector<float> load_npy_f32(const std::string& path) {
+  std::ifstream f(path, std::ios::binary);
+  if (!f) throw std::runtime_error("cannot open npy: " + path);
+  char magic[6]; f.read(magic, 6);
+  if (std::memcmp(magic, "\x93NUMPY", 6) != 0) throw std::runtime_error("bad npy magic: " + path);
+  uint8_t major = 0, minor = 0; f.read((char*)&major, 1); f.read((char*)&minor, 1);
+  (void)minor;
+  uint32_t hlen = 0;
+  if (major == 1) { uint16_t h; f.read((char*)&h, 2); hlen = h; }
+  else            { f.read((char*)&hlen, 4); }
+  std::string hdr(hlen, '\0'); f.read(&hdr[0], hlen);
+  if (hdr.find("'<f4'") == std::string::npos)
+    throw std::runtime_error("npy must be little-endian float32 (<f4): " + path);
+  size_t lp = hdr.find('('), rp = hdr.find(')', lp);
+  std::string shp = hdr.substr(lp + 1, rp - lp - 1);
+  int64_t count = 1; bool any = false; std::string num;
+  auto flush = [&]{ if (!num.empty()) { count *= std::stoll(num); any = true; num.clear(); } };
+  for (char c : shp) { if (isdigit(c)) num += c; else flush(); }
+  flush();
+  if (!any) count = 1;  // scalar
+  std::vector<float> data(count);
+  f.read(reinterpret_cast<char*>(data.data()), count * 4);
+  return data;
+}
+
 Program assemble(const std::string& text) {
   Program p;
   std::istringstream is(text);
@@ -203,6 +230,19 @@ Program assemble(const std::string& text) {
       int id = p.descriptor_id(tok[1]);
       if (id < 0) err("unknown descriptor " + tok[1]);
       fill_init(p, id, tok[2], tok.size() > 3 ? tok[3] : "");
+      continue;
+    }
+    if (tok[0] == ".npy") {                  // bake an .npy weight into init_data
+      if (tok.size() < 3) err(".npy NAME path");
+      int id = p.descriptor_id(tok[1]);
+      if (id < 0) err("unknown descriptor " + tok[1]);
+      const Descriptor& d = p.descriptors[id];
+      std::vector<float> vals = load_npy_f32(tok[2]);
+      int64_t n = std::min<int64_t>(d.numel(), int64_t(vals.size()));
+      size_t es = dtype_size(d.dtype);
+      std::vector<uint8_t> bytes(size_t(n) * es, 0);
+      for (int64_t i = 0; i < n; ++i) store_elem(bytes.data() + size_t(i) * es, d.dtype, vals[i]);
+      p.init_data[id] = std::move(bytes);
       continue;
     }
 

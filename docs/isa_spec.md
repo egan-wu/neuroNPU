@@ -92,11 +92,14 @@ global, so a `@wait` can depend on another core's `@sig`.
 | Directive | Form | Purpose |
 |-----------|------|---------|
 | `.desc`   | `.desc NAME ddr\|sram DTYPE BASE DIMS [+ITERSTRIDE] [:STRIDES]` | declare a descriptor (declare before use) |
-| `.data`   | `.data NAME MODE [ARG]` | preload a descriptor's memory |
+| `.data`   | `.data NAME MODE [ARG]` | preload a descriptor's memory (synthetic fill) |
+| `.npy`    | `.npy NAME path` | bake a float32 `.npy` array into the descriptor (dtype-converted → `init_data`) |
+| `.meta`   | `.meta KEY VALUE` | attach a provenance key/value to the binary header |
 
 `DIMS` accepts `x`- or `,`-separated extents (e.g. `64x64`). `BASE` accepts hex (`0x...`)
-or decimal. `.data` MODE ∈ `iota`, `zeros`, `const V`, `rand SEED`.
-Comments start with `#` or `;`.
+or decimal. `.data` MODE ∈ `iota`, `zeros`, `const V`, `rand SEED`. `.npy` bakes real
+weights into the artifact so it runs standalone (the compiler emits these for a
+self-contained `.npubin`). Comments start with `#` or `;`.
 
 ## Example
 

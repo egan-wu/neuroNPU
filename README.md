@@ -114,7 +114,7 @@ import compiler.api as npu
 model = npu.compile("yolov10n.onnx", opt=npu.O2)   # a Graph or an .onnx path
 print(model.profile().summary())                   # timing-only metrics
 out = model.run({"x": x})                           # functional execution
-model.save("model.npubin")                          # artifact + provenance header
+model.save("model.npubin")                          # self-contained: weights + provenance baked in
 ```
 
 **CLI** ([`compiler/cli.py`](compiler/cli.py), installs as `neuronpu` via

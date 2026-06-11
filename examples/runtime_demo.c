@@ -38,8 +38,8 @@ int main(int argc, char** argv) {
          p.memory_bound ? "memory" : "compute", p.energy_nj / 1e6);
 
   /* Optional functional run if the model exposes an x -> y_out interface.
-   * (A bare artifact carries no weights, so this is only numerically meaningful
-   * for weight-free graphs; the host must bind every input the model needs.) */
+   * Artifacts saved with embed=True bake their weights into the binary, so this
+   * is numerically correct standalone; the host only binds runtime inputs. */
   int64_t nx = npu_output_numel(m, "x");
   if (nx > 0) {
     float* xb = (float*)calloc((size_t)nx, sizeof(float));
